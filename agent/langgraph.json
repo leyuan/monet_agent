@@ -1,0 +1,10 @@
+{
+  "dependencies": [".", "langchain_anthropic"],
+  "graphs": {
+    "stock_agent": "./src/stock_agent/agent.py:graph"
+  },
+  "auth": {
+    "path": "./src/stock_agent/auth.py:auth"
+  },
+  "env": ".env"
+}
