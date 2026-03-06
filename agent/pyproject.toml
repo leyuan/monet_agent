@@ -16,7 +16,6 @@ dependencies = [
     "yfinance>=0.2.40",
     "ta>=0.11.0",
     "pandas>=2.2.0",
-    "apscheduler>=3.10.0",
 ]
 
 [tool.hatch.build.targets.wheel]
