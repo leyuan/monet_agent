@@ -11,16 +11,24 @@ logger = logging.getLogger(__name__)
 
 def read_memory(key: str) -> dict | None:
     """Read a memory entry by key."""
-    sb = get_supabase()
-    result = sb.table("agent_memory").select("*").eq("key", key).maybe_single().execute()
-    return result.data
+    try:
+        sb = get_supabase()
+        result = sb.table("agent_memory").select("*").eq("key", key).maybe_single().execute()
+        return result.data if result else None
+    except Exception:
+        logger.warning("Failed to read memory key=%s", key)
+        return None
 
 
 def read_all_memory() -> list[dict]:
     """Read all memory entries."""
-    sb = get_supabase()
-    result = sb.table("agent_memory").select("*").execute()
-    return result.data
+    try:
+        sb = get_supabase()
+        result = sb.table("agent_memory").select("*").execute()
+        return result.data if result else []
+    except Exception:
+        logger.warning("Failed to read all memory")
+        return []
 
 
 def write_memory(key: str, value: dict) -> dict:
@@ -72,14 +80,18 @@ def read_journal(
     symbols: list[str] | None = None,
 ) -> list[dict]:
     """Read recent journal entries with optional filters."""
-    sb = get_supabase()
-    query = sb.table("agent_journal").select("*").order("created_at", desc=True).limit(limit)
-    if entry_type:
-        query = query.eq("entry_type", entry_type)
-    if symbols:
-        query = query.overlaps("symbols", symbols)
-    result = query.execute()
-    return result.data
+    try:
+        sb = get_supabase()
+        query = sb.table("agent_journal").select("*").order("created_at", desc=True).limit(limit)
+        if entry_type:
+            query = query.eq("entry_type", entry_type)
+        if symbols:
+            query = query.overlaps("symbols", symbols)
+        result = query.execute()
+        return result.data if result else []
+    except Exception:
+        logger.warning("Failed to read journal")
+        return []
 
 
 # --- Trades ---
@@ -167,6 +179,19 @@ def remove_from_watchlist(symbol: str) -> bool:
 
 def get_risk_settings() -> dict:
     """Get the singleton risk settings row."""
-    sb = get_supabase()
-    result = sb.table("risk_settings").select("*").limit(1).single().execute()
-    return result.data
+    try:
+        sb = get_supabase()
+        result = sb.table("risk_settings").select("*").limit(1).single().execute()
+        return result.data if result else _default_risk_settings()
+    except Exception:
+        logger.warning("Failed to read risk settings, using defaults")
+        return _default_risk_settings()
+
+
+def _default_risk_settings() -> dict:
+    return {
+        "max_position_pct": 10.0,
+        "max_daily_loss": 500.0,
+        "max_total_exposure_pct": 80.0,
+        "default_stop_loss_pct": 5.0,
+    }

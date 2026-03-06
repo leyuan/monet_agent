@@ -7,7 +7,15 @@ def load_agent_context() -> str:
     """Load the agent's persistent context for chat mode.
 
     Returns a markdown string with market outlook, recent journal, and core beliefs.
+    Gracefully handles missing tables or empty database.
     """
+    try:
+        return _load_agent_context_inner()
+    except Exception:
+        return "No persistent memory yet. This is a fresh start."
+
+
+def _load_agent_context_inner() -> str:
     sections = []
 
     # Core beliefs

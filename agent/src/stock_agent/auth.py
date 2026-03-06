@@ -19,6 +19,9 @@ async def authenticate(headers: dict[bytes, bytes]) -> Auth.types.MinimalUserDic
     """Validate Supabase JWT and return the user's identity."""
     authorization = headers.get(b"authorization", b"").decode()
     if not authorization or not authorization.startswith("Bearer "):
+        # Allow unauthenticated access in local dev (Studio uses no-op auth)
+        if os.environ.get("LANGGRAPH_ENV", "dev") == "dev":
+            return {"identity": "dev-user", "permissions": ["user"]}
         raise Auth.exceptions.HTTPException(
             status_code=401,
             detail="Missing or invalid Authorization header",

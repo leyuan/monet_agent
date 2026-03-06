@@ -13,7 +13,6 @@ from deepagents.backends import FilesystemBackend
 
 from stock_agent.memory import load_agent_context
 from stock_agent.middleware import handle_tool_errors, retry_middleware
-from stock_agent.scheduler import start_scheduler
 from stock_agent.tools import CHAT_TOOLS
 
 AGENT_ROOT = Path(__file__).parent.parent.parent  # agent/ directory
@@ -67,5 +66,18 @@ graph = create_deep_agent(
     middleware=[handle_tool_errors, retry_middleware],
 )
 
-# Start the autonomous scheduler when the agent module loads
-start_scheduler()
+# Start the autonomous scheduler lazily (needs a running event loop)
+def _start_scheduler_safe():
+    try:
+        from stock_agent.scheduler import start_scheduler
+        start_scheduler()
+    except Exception:
+        pass
+
+import asyncio
+try:
+    loop = asyncio.get_running_loop()
+    loop.call_soon(_start_scheduler_safe)
+except RuntimeError:
+    # No event loop yet — scheduler will be started when the server runs
+    pass
