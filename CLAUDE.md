@@ -1,4 +1,4 @@
-# Stock Agent — Autonomous AI Investor
+# Monet Agent — Autonomous AI Investor
 
 ## Project Overview
 An autonomous AI stock trading agent that makes its own trading decisions on a schedule (research -> analyze -> trade -> reflect). Uses Alpaca paper trading, has persistent memory in Supabase, and a Next.js web UI for monitoring/chat.

@@ -49,7 +49,7 @@ export default function SignupPage() {
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle className="text-2xl">Create Account</CardTitle>
-          <CardDescription>Sign up to monitor the Stock Agent</CardDescription>
+          <CardDescription>Sign up to monitor the Monet Agent</CardDescription>
         </CardHeader>
         <form onSubmit={handleSignup}>
           <CardContent className="space-y-4">

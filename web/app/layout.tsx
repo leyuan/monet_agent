@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Stock Agent",
+  title: "Monet Agent",
   description: "Autonomous AI stock trading agent",
 };
 

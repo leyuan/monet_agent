@@ -17,7 +17,7 @@ import type { ThreadMessage, AppendMessage } from "@assistant-ui/react";
 import { convertLangChainMessages } from "@assistant-ui/react-langgraph";
 
 const ASSISTANT_ID =
-  process.env["NEXT_PUBLIC_LANGGRAPH_ASSISTANT_ID"] ?? "stock_agent";
+  process.env["NEXT_PUBLIC_LANGGRAPH_ASSISTANT_ID"] ?? "monet_agent";
 const API_URL = process.env["NEXT_PUBLIC_LANGGRAPH_API_URL"]!;
 
 type CheckpointRef = Omit<Checkpoint, "thread_id">;

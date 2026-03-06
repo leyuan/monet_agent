@@ -43,7 +43,7 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center px-4">
       <Card className="w-full max-w-sm">
         <CardHeader>
-          <CardTitle className="text-2xl">Stock Agent</CardTitle>
+          <CardTitle className="text-2xl">Monet Agent</CardTitle>
           <CardDescription>Sign in to monitor the autonomous trading agent</CardDescription>
         </CardHeader>
         <form onSubmit={handleLogin}>

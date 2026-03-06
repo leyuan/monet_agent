@@ -28,7 +28,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <div className="flex h-dvh">
       <aside className="hidden w-56 flex-col border-r bg-background md:flex">
         <div className="flex h-14 items-center border-b px-4">
-          <h2 className="font-semibold text-sm">Stock Agent</h2>
+          <h2 className="font-semibold text-sm">Monet Agent</h2>
         </div>
         <nav className="flex flex-1 flex-col gap-1 p-2">
           {navItems.map((item) => {
