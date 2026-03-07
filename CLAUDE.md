@@ -25,13 +25,17 @@ stock_agent/
 │   │   ├── technical.py            # RSI, MACD, Bollinger, SMA, ATR indicators
 │   │   └── risk.py                 # Pre-trade risk checks
 │   ├── skills/                     # Deep Agent skill definitions
-│   │   ├── research/SKILL.md
-│   │   ├── analysis/SKILL.md
-│   │   ├── trade-execution/SKILL.md
-│   │   ├── reflection/SKILL.md
+│   │   ├── research/SKILL.md       # Stage-aware market research
+│   │   ├── analysis/SKILL.md       # Analysis + price target setting
+│   │   ├── trade-execution/SKILL.md # Price-target-driven execution
+│   │   ├── reflection/SKILL.md     # Daily reflection + stage counter updates
+│   │   ├── weekend-research/SKILL.md # Saturday batch deep dives
+│   │   ├── weekly-review/SKILL.md  # Sunday full review + stage management
 │   │   └── database-guide/SKILL.md
 │   └── scripts/
-│       └── seed_strategy.py        # One-time seed for founding strategy
+│       ├── seed_strategy.py        # One-time seed for founding strategy
+│       ├── seed_stage.py           # Seed agent_stage to "explore"
+│       └── create_crons.py         # Create/update LangGraph cron jobs
 ├── web/                            # Next.js frontend
 │   └── app/
 │       ├── (app)/dashboard/        # Portfolio, trades, watchlist
@@ -51,14 +55,30 @@ Both graphs are registered in `langgraph.json` and run in a single LangGraph Pla
 | `monet_agent` | `agent.py:graph` | Chat mode — users ask questions | Read-only: search, quotes, portfolio, outlook, journal, trades |
 | `autonomous_loop` | `autonomy.py:autonomous_graph` | Trading loop — runs on cron | Full: above + place_order, write_memory, write_journal, watchlist, risk check, technicals, fundamentals, screening |
 
-## Scheduling
+## Scheduling (17 runs/week)
 
-The autonomous loop runs via **LangGraph Platform crons** (not in-process):
-- Schedule: `0 14,17,20 * * 1-5` (UTC) = **10am, 1pm, 4pm Toronto time** on weekdays
-- Cron invokes `autonomous_loop` graph with a single message
-- The system prompt instructs it to run all 4 phases: research -> analyze -> trade -> reflect
-- Managed in LangSmith UI or via `langgraph_sdk` client
-- **Note**: UTC-based, needs manual adjustment for DST changes (EDT/EST)
+The autonomous loop runs via **LangGraph Platform crons** with an explore/exploit lifecycle:
+
+### Weekdays (Mon-Fri) — 3 runs/day
+| Cron (UTC) | Toronto | Phases | Focus |
+|------------|---------|--------|-------|
+| `0 14 * * 1-5` | 10am | Research | Market health, earnings, news scan |
+| `0 17 * * 1-5` | 1pm | Research + Analysis | Deep company dive, set price targets |
+| `0 20 * * 1-5` | 4pm | Execution + Reflection | Check targets, trade if hit, daily reflection |
+
+### Weekends — 1 run/day
+| Cron (UTC) | Toronto | Phases | Focus |
+|------------|---------|--------|-------|
+| `0 15 * * 6` | Sat 11am | Weekend Research + Analysis | Batch deep dives (3-5 companies), sector analysis |
+| `0 15 * * 0` | Sun 11am | Weekly Review | Performance, strategy, stage management, weekly priorities |
+
+### Explore/Exploit Lifecycle
+Agent tracks maturity via `agent_stage` memory (`explore` → `balanced` → `exploit`):
+- **Explore**: Screen aggressively, 2+ deep dives/day, build watchlist to 15+, rarely trade (0.8+ confidence)
+- **Balanced**: Maintain research cadence, check price targets actively, trade at 0.6+ confidence
+- **Exploit**: Focus on position management, research only for new catalysts or replacements
+
+Managed via `agent/scripts/create_crons.py`. **Note**: UTC-based, needs manual adjustment for DST changes (EDT/EST)
 
 ## Deployment
 
@@ -103,6 +123,12 @@ supabase db reset                   # Apply migrations
 
 # Seed founding strategy
 cd agent && python scripts/seed_strategy.py
+
+# Seed explore/exploit stage
+cd agent && python scripts/seed_stage.py
+
+# Update cron jobs
+cd agent && python scripts/create_crons.py
 ```
 
 ## Important Rules

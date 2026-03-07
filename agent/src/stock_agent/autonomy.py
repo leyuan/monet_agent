@@ -47,6 +47,8 @@ Available phases:
 - **Analysis** — /skills/analysis/SKILL.md
 - **Trade Execution** — /skills/trade-execution/SKILL.md
 - **Reflection** — /skills/reflection/SKILL.md
+- **Weekend Research** — /skills/weekend-research/SKILL.md (Saturday batch deep dives)
+- **Weekly Review** — /skills/weekly-review/SKILL.md (Sunday full review + stage management)
 """
 
 model_name = os.environ.get("MODEL_NAME", "anthropic:claude-sonnet-4-5-20250929")

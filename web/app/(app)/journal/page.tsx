@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { JournalEntryCard } from "@/components/trading/journal-entry";
+import { AboutMeSection } from "@/components/trading/about-me";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export default function JournalPage() {
@@ -38,8 +39,9 @@ export default function JournalPage() {
     <div className="h-full overflow-y-auto p-6 space-y-6">
       <h1 className="text-2xl font-semibold">Agent Journal</h1>
 
-      <Tabs defaultValue="all">
+      <Tabs defaultValue="about">
         <TabsList>
+          <TabsTrigger value="about">About Me</TabsTrigger>
           <TabsTrigger value="all">All</TabsTrigger>
           <TabsTrigger value="research">Research</TabsTrigger>
           <TabsTrigger value="analysis">Analysis</TabsTrigger>
@@ -58,6 +60,10 @@ export default function JournalPage() {
             )}
           </TabsContent>
         ))}
+
+        <TabsContent value="about" className="space-y-4">
+          <AboutMeSection />
+        </TabsContent>
       </Tabs>
     </div>
   );
