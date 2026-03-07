@@ -41,3 +41,4 @@ Review recent performance, learn from outcomes, and refine your strategy.
 - Look for systematic errors, not just individual outcomes
 - Update your mental models based on evidence
 - Small, incremental strategy adjustments are better than overhauls
+- **Evaluate activity level**: Did you trade because there was a real edge, or because you felt you "should"? Over-trading is the most common mistake. The best loops are often research-only with no trades.
