@@ -25,6 +25,7 @@ from stock_agent.db import (
 )
 from stock_agent.market_data import get_historical_bars, get_historical_data_dict, get_portfolio, get_quote
 from stock_agent.risk import check_risk
+from stock_agent.supabase_client import get_supabase
 from stock_agent.technical import compute_indicators
 
 logger = logging.getLogger(__name__)
@@ -369,7 +370,7 @@ def check_trade_risk(
 # ============================================================
 
 def get_my_portfolio() -> dict:
-    """Show the agent's current portfolio holdings and P&L.
+    """Show the agent's current portfolio holdings and P&L from Alpaca.
 
     Returns:
         Portfolio with equity, cash, positions.
@@ -377,49 +378,30 @@ def get_my_portfolio() -> dict:
     return get_portfolio()
 
 
-def get_my_outlook() -> dict:
-    """Get the agent's current market outlook and beliefs.
+def query_database(sql: str) -> dict:
+    """Execute a read-only SQL query against the agent's Supabase database.
 
-    Returns:
-        Dict with market outlook, strategy, and risk appetite.
-    """
-    outlook = read_memory("market_outlook")
-    strategy = read_memory("strategy")
-    risk_appetite = read_memory("risk_appetite")
-    return {
-        "market_outlook": outlook["value"] if outlook else None,
-        "strategy": strategy["value"] if strategy else None,
-        "risk_appetite": risk_appetite["value"] if risk_appetite else None,
-    }
+    Use this to answer questions about watchlist, trades, journal entries, memory,
+    and risk settings. Read the /skills/database-guide/SKILL.md for the full schema.
 
-
-def get_my_journal(
-    entry_type: str | None = None,
-    limit: int = 10,
-) -> list[dict]:
-    """Get the agent's recent journal entries.
+    Only SELECT queries are allowed. Any INSERT/UPDATE/DELETE will be rejected.
 
     Args:
-        entry_type: Optional filter — "research", "analysis", "trade", "reflection".
-        limit: Max entries to return (default 10).
+        sql: A SELECT SQL query.
 
     Returns:
-        List of journal entries.
+        Dict with rows (list of dicts) or an error message.
     """
-    return read_journal(entry_type=entry_type, limit=limit)
+    normalized = sql.strip().rstrip(";").strip()
+    if not normalized.upper().startswith("SELECT"):
+        return {"error": "Only SELECT queries are allowed in chat mode."}
 
-
-def explain_trade(symbol: str | None = None, limit: int = 5) -> list[dict]:
-    """Get the agent's recent trades with its reasoning.
-
-    Args:
-        symbol: Optional — filter to a specific ticker.
-        limit: Max trades to return.
-
-    Returns:
-        List of trades with thesis and confidence.
-    """
-    return get_trades(limit=limit, symbol=symbol)
+    try:
+        sb = get_supabase()
+        result = sb.rpc("exec_readonly_sql", {"query": normalized}).execute()
+        return {"rows": result.data}
+    except Exception as e:
+        return {"error": str(e)}
 
 
 # ============================================================
@@ -446,7 +428,5 @@ CHAT_TOOLS = [
     internet_search,
     get_stock_quote,
     get_my_portfolio,
-    get_my_outlook,
-    get_my_journal,
-    explain_trade,
+    query_database,
 ]
