@@ -96,10 +96,14 @@ If the answer is yes for a specific candidate, proceed to execution.
    - 0.85+ confidence: up to max position % (10%)
    - 0.6-0.85 confidence: half of max position % (5%)
    - Below 0.6: DO NOT TRADE
-4. **Execute**: Use `place_order` with thesis and confidence
-5. **Record**: Write a journal entry of type "trade" with entry price, target, thesis, and risk metrics
+4. **Choose order type**:
+   - **Market order**: Use when stock is AT or BELOW `target_entry` right now and you want immediate fill
+   - **Limit order**: Use when stock is within 1-3% ABOVE `target_entry` — set limit at your target and let it fill if price dips. Preferred when you have time left in the trading day.
+   - **Default to limit orders** when possible — they ensure you get your target price or better
+5. **Execute**: Use `place_order` with thesis, confidence, and the chosen `order_type` (and `limit_price` for limit orders)
+6. **Record**: Write a journal entry of type "trade" with entry price, target, thesis, and risk metrics
 
-## Step 6: End-of-Phase Journal
+## Step 7: End-of-Phase Journal
 Always write a trade-phase journal entry, even if you traded nothing. Include:
 - Current portfolio snapshot (positions, cash %, total exposure)
 - Actions taken (buys, sells, trims, DCA adds) or why you stood pat

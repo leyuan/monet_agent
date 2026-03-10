@@ -13,6 +13,8 @@ from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest
 from alpaca.trading.enums import OrderSide, TimeInForce
 from tavily import TavilyClient
 
+from langgraph_sdk import get_sync_client
+
 from stock_agent.alpaca_client import get_trading_client
 from stock_agent.db import (
     add_to_watchlist,
@@ -1279,6 +1281,71 @@ def _avg_return(sectors: list[dict], etf_set: set[str]) -> float:
     return sum(vals) / len(vals) if vals else 0.0
 
 
+def send_daily_recap() -> dict:
+    """Send a daily trade recap to the chat tab for the user to read.
+
+    Creates a new thread on the chat graph and triggers a run that queries
+    today's journal entries and generates a concise recap. The recap appears
+    as a new conversation in the chat tab.
+
+    Call this at the very end of the 4 PM reflection phase (weekdays only).
+
+    Returns:
+        Dict with thread_id and status.
+    """
+    today = datetime.now().strftime("%A, %B %-d")
+
+    recap_prompt = (
+        f"Today is {today}. This is an automated end-of-day recap request.\n\n"
+        "Query today's journal entries:\n"
+        "```sql\n"
+        "SELECT entry_type, title, content, symbols, created_at\n"
+        "FROM agent_journal\n"
+        "WHERE created_at >= CURRENT_DATE\n"
+        "ORDER BY created_at\n"
+        "```\n\n"
+        "Also check today's trades:\n"
+        "```sql\n"
+        "SELECT symbol, side, quantity, order_type, limit_price, status, thesis, confidence, created_at\n"
+        "FROM trades\n"
+        "WHERE created_at >= CURRENT_DATE\n"
+        "ORDER BY created_at\n"
+        "```\n\n"
+        "Based on the data, write a concise daily recap covering:\n"
+        "1. **Research highlights** — what did you look into today and why?\n"
+        "2. **Analysis** — key findings, price targets set or updated\n"
+        "3. **Trades & orders** — any orders placed (market or limit), positions managed, or why you stood pat\n"
+        "4. **Self-improvement** — this is the most important part. Be specific about what you could do better:\n"
+        "   - Were there missed opportunities? (e.g. stock hit target but you weren't running)\n"
+        "   - Could you have used a different order type? (e.g. limit orders to catch intraday dips)\n"
+        "   - Were your price targets realistic or too tight/wide?\n"
+        "   - Did you over-research or under-research anything?\n"
+        "   - Any process changes that would help tomorrow?\n"
+        "5. **Tomorrow's watchlist** — 2-3 things you're watching for\n\n"
+        "Keep it short and punchy — a few sentences per section. "
+        "I'll dig into the journal if something catches my eye."
+    )
+
+    try:
+        client = get_sync_client()
+        thread = client.threads.create(
+            metadata={"title": f"Daily Recap — {today}"},
+        )
+        client.runs.create(
+            thread["thread_id"],
+            assistant_id="monet_agent",
+            input={"messages": [{"role": "user", "content": recap_prompt}]},
+        )
+        return {
+            "thread_id": thread["thread_id"],
+            "status": "recap_triggered",
+            "message": f"Daily recap thread created. It will appear in the chat tab shortly.",
+        }
+    except Exception as e:
+        logger.error(f"Failed to send daily recap: {e}")
+        return {"status": "error", "error": str(e)}
+
+
 # ============================================================
 # Tool collections for each mode
 # ============================================================
@@ -1306,6 +1373,7 @@ AUTONOMOUS_TOOLS = [
     get_portfolio_state,
     check_trade_risk,
     query_database,
+    send_daily_recap,
 ]
 
 def submit_user_insight(

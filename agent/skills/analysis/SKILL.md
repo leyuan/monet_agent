@@ -82,6 +82,29 @@ Update the watchlist entry with computed targets:
 manage_watchlist(action="add", symbol="AAPL", thesis="...", target_entry=185.0, target_exit=225.0)
 ```
 
+### 5.5. Place Limit Orders for Near-Target Stocks
+
+After setting price targets, check if any analyzed stock is **within 3% of its target_entry**. If so, consider placing a DAY limit order now rather than waiting for the trade-execution phase.
+
+**When to place a limit order from analysis:**
+- Stock price is within 3% above the `target_entry` (close but hasn't quite hit)
+- Your confidence score is at or above your stage threshold (0.8 for explore, 0.6 for balanced/exploit)
+- Fundamentals and thesis are solid (you just confirmed this in steps 2-4)
+- The market regime is not extreme risk-off (VIX < 30)
+- You don't already have an open order for this symbol — check `get_open_orders()` first
+
+**How to place:**
+1. Run `check_trade_risk(symbol, "buy", quantity)` — if it fails, skip
+2. Use `place_order(symbol, "buy", quantity, order_type="limit", limit_price=target_entry, thesis="...", confidence=...)`
+3. The order lives for the trading day (TimeInForce.DAY) — Alpaca fills it if price touches your target
+4. Write a journal entry noting the limit order placement and reasoning
+
+**Do NOT place limit orders if:**
+- Stock is more than 3% above target (wait for it to come to you)
+- Stock is already below target (use the trade-execution phase for market orders)
+- You have low confidence or uncertain fundamentals
+- Earnings are within 5 days (too much binary risk for a passive limit order)
+
 ### 6. Synthesize thesis
 - For each candidate, form a clear bull case and bear case
 - **Ground the thesis in fundamentals**: revenue trajectory, margin outlook, competitive position

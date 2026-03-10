@@ -109,6 +109,12 @@ Read `agent_stage` from memory and update its counters:
   - Fundamental thesis tracking (which predictions were right/wrong?)
   - Current stage and progress toward next stage transition
 
+### 9. Send Daily Recap to Chat (LAST STEP — weekdays only)
+
+As the very last thing you do, call `send_daily_recap()` to create a recap thread in the chat tab. This gives the user a quick summary without them having to dig through journal entries.
+
+The recap is generated automatically from today's journal and trades — you just need to call the tool. Do NOT skip this step.
+
 ## Reflection Principles
 - Be honest about mistakes — don't rationalize bad trades
 - Look for systematic errors, not just individual outcomes
