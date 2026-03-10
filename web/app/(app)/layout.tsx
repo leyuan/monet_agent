@@ -62,7 +62,27 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           </Button>
         </div>
       </aside>
-      <main className="flex-1 overflow-hidden">{children}</main>
+      <main className="flex-1 overflow-hidden pb-14 md:pb-0">{children}</main>
+      {/* Mobile bottom tab bar */}
+      <nav className="fixed inset-x-0 bottom-0 z-50 flex items-center justify-around border-t bg-background md:hidden">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          const isActive = pathname.startsWith(item.href);
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={cn(
+                "flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px] text-muted-foreground transition-colors",
+                isActive && "text-foreground",
+              )}
+            >
+              <Icon className="size-5" />
+              {item.label}
+            </Link>
+          );
+        })}
+      </nav>
     </div>
   );
 }
