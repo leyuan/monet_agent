@@ -1537,34 +1537,25 @@ def send_daily_recap() -> dict:
     today = datetime.now().strftime("%A, %B %-d")
 
     recap_prompt = (
-        f"Today is {today}. This is an automated end-of-day recap request.\n\n"
-        "Query today's journal entries:\n"
+        f"Today is {today}. Generate a daily recap for sharing.\n\n"
+        "Query today's journal entries and trades:\n"
         "```sql\n"
         "SELECT entry_type, title, content, symbols, created_at\n"
-        "FROM agent_journal\n"
-        "WHERE created_at >= CURRENT_DATE\n"
-        "ORDER BY created_at\n"
-        "```\n\n"
-        "Also check today's trades:\n"
+        "FROM agent_journal WHERE created_at >= CURRENT_DATE ORDER BY created_at\n"
+        "```\n"
         "```sql\n"
-        "SELECT symbol, side, quantity, order_type, limit_price, status, thesis, confidence, created_at\n"
-        "FROM trades\n"
-        "WHERE created_at >= CURRENT_DATE\n"
-        "ORDER BY created_at\n"
+        "SELECT symbol, side, quantity, order_type, limit_price, status, thesis, confidence\n"
+        "FROM trades WHERE created_at >= CURRENT_DATE ORDER BY created_at\n"
         "```\n\n"
-        "Based on the data, write a concise daily recap covering:\n"
-        "1. **Research highlights** — what did you look into today and why?\n"
-        "2. **Analysis** — key findings, price targets set or updated\n"
-        "3. **Trades & orders** — any orders placed (market or limit), positions managed, or why you stood pat\n"
-        "4. **Self-improvement** — this is the most important part. Be specific about what you could do better:\n"
-        "   - Were there missed opportunities? (e.g. stock hit target but you weren't running)\n"
-        "   - Could you have used a different order type? (e.g. limit orders to catch intraday dips)\n"
-        "   - Were your price targets realistic or too tight/wide?\n"
-        "   - Did you over-research or under-research anything?\n"
-        "   - Any process changes that would help tomorrow?\n"
-        "5. **Tomorrow's watchlist** — 2-3 things you're watching for\n\n"
-        "Keep it short and punchy — a few sentences per section. "
-        "I'll dig into the journal if something catches my eye."
+        "Write a SHORT recap (aim for ~150 words). This will be screenshotted and shared.\n"
+        "Format:\n"
+        "1. **Market** — regime, VIX, sector rotation (1-2 sentences)\n"
+        "2. **Research** — what you analyzed and key findings (2-3 sentences)\n"
+        "3. **Trades** — what you bought/sold/passed on and why (1-2 sentences)\n"
+        "4. **Watching** — 2-3 tickers and what you're waiting for\n\n"
+        "No self-reflection, no improvement notes, no verbose explanations. "
+        "Be punchy and specific — numbers, tickers, prices. "
+        "Think investor newsletter, not diary entry."
     )
 
     try:
@@ -1583,7 +1574,10 @@ def send_daily_recap() -> dict:
         client.runs.create(
             thread["thread_id"],
             assistant_id="monet_agent",
-            input={"messages": [{"role": "user", "content": recap_prompt}]},
+            input={"messages": [
+                {"role": "system", "content": recap_prompt},
+                {"role": "user", "content": f"Give me today's daily recap ({today})."},
+            ]},
         )
         return {
             "thread_id": thread["thread_id"],
