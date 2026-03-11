@@ -77,6 +77,18 @@ After completing analysis, compute and set `target_entry` and `target_exit` on t
 - **Balanced**: Set moderate targets (3-5% below support, 15-20% upside).
 - **Exploit**: Set tight targets (1-3% below support, 10-15% upside). You know the stock well.
 
+**When to revise targets (don't wait forever):**
+If a stock has rallied >10% past your `target_entry` AND:
+- Fundamentals are still strong or improving (confirmed in steps 2-3)
+- The rally is supported by volume and breadth (not just a low-volume squeeze)
+- Market regime has improved (e.g., VIX dropped significantly since target was set)
+
+Then **revise `target_entry` upward** to the nearest technical support level (e.g., current 20-day SMA or recent pullback low). Don't anchor to stale targets set during a different market regime.
+
+**Rule: Targets older than 5 trading days in a regime change should always be revisited.** A target set during VIX 30 is meaningless when VIX is 22. Recalculate from current technicals.
+
+Do NOT chase — revised target should still be below current price (buying a pullback to new support, not buying the rip).
+
 Update the watchlist entry with computed targets:
 ```
 manage_watchlist(action="add", symbol="AAPL", thesis="...", target_entry=185.0, target_exit=225.0)
