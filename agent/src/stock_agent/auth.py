@@ -60,8 +60,18 @@ async def add_owner(
     ctx: Auth.types.AuthContext,
     value: dict,
 ) -> dict:
-    """Tag resources with owner on create; filter by owner on search."""
-    filters = {"owner": ctx.user.identity}
+    """Tag resources with owner on create; filter by owner on search.
+
+    If the caller is a service-level identity (dev-user) and the resource
+    already has an explicit owner in metadata, preserve that owner instead
+    of overwriting it. This allows autonomous tools (e.g. send_daily_recap)
+    to create threads on behalf of a specific user.
+    """
     metadata = value.setdefault("metadata", {})
-    metadata.update(filters)
-    return filters
+    # If service-level caller explicitly set an owner, respect it
+    if ctx.user.identity == "dev-user" and metadata.get("owner"):
+        owner = metadata["owner"]
+    else:
+        owner = ctx.user.identity
+        metadata["owner"] = owner
+    return {"owner": owner}
