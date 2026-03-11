@@ -62,16 +62,17 @@ async def add_owner(
 ) -> dict:
     """Tag resources with owner on create; filter by owner on search.
 
-    If the caller is a service-level identity (dev-user) and the resource
-    already has an explicit owner in metadata, preserve that owner instead
-    of overwriting it. This allows autonomous tools (e.g. send_daily_recap)
-    to create threads on behalf of a specific user.
+    Service-level callers (dev-user) get no owner filter, so they can
+    create and access threads on behalf of any user. If they set an
+    explicit owner in metadata, that owner is preserved for the frontend
+    to discover. Regular users are always scoped to their own resources.
     """
     metadata = value.setdefault("metadata", {})
-    # If service-level caller explicitly set an owner, respect it
-    if ctx.user.identity == "dev-user" and metadata.get("owner"):
-        owner = metadata["owner"]
-    else:
-        owner = ctx.user.identity
-        metadata["owner"] = owner
-    return {"owner": owner}
+    if ctx.user.identity == "dev-user":
+        # Service callers: preserve explicit owner, no restrictive filter
+        if not metadata.get("owner"):
+            metadata["owner"] = "dev-user"
+        return {}  # No filter — service key can access all threads
+    # Regular users: scope to their own resources
+    metadata["owner"] = ctx.user.identity
+    return {"owner": ctx.user.identity}
