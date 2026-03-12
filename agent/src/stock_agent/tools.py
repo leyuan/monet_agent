@@ -2119,13 +2119,18 @@ def score_universe(top_n: int = 30) -> dict:
 
 
 def enrich_eps_revisions(symbols: list[str]) -> dict:
-    """Enrich top-ranked stocks with EPS revision scores using yfinance eps_trend.
+    """Enrich top-ranked stocks with EPS revision scores using yfinance.
 
-    For each symbol, fetches analyst EPS estimate revisions (current vs 30 days ago)
-    and scores based on revision direction:
-    - Rising revisions (current > 30d ago by 3%+) → 70-85
-    - Flat (within 3%) → 50
-    - Falling revisions (current < 30d ago by 3%+) → 15-30
+    Combines two signals:
+    1. **eps_trend** (70% weight): Estimate direction — current consensus vs 30 days ago.
+    2. **eps_revisions** (30% weight): Analyst breadth — ratio of up vs down revisions.
+
+    Score ranges:
+    - Strong rising (estimate up + many analysts revising up) → 80-90
+    - Rising → 70-80
+    - Flat → 45-55
+    - Falling → 20-30
+    - Strong falling → 10-20
 
     Uses yfinance (free, no API key needed). Each call takes ~0.5s.
 
@@ -2141,6 +2146,7 @@ def enrich_eps_revisions(symbols: list[str]) -> dict:
         try:
             ticker = yf.Ticker(sym)
             eps_trend = ticker.eps_trend
+            eps_revisions = ticker.eps_revisions
 
             if eps_trend is None or eps_trend.empty:
                 enriched.append({
@@ -2148,10 +2154,12 @@ def enrich_eps_revisions(symbols: list[str]) -> dict:
                     "eps_revision_score": 50.0,
                     "revision_signal": "no_data",
                     "next_quarter_eps_avg": None,
+                    "analysts_up": None,
+                    "analysts_down": None,
                 })
                 continue
 
-            # Use next quarter row ("0q") — current estimate vs 30 days ago
+            # --- Signal 1: Estimate direction (eps_trend) ---
             if "0q" in eps_trend.index:
                 row = eps_trend.loc["0q"]
             else:
@@ -2165,25 +2173,60 @@ def enrich_eps_revisions(symbols: list[str]) -> dict:
                 pct_change = (float(current) - float(thirty_days_ago)) / abs(float(thirty_days_ago))
 
                 if pct_change > 0.03:
-                    # Rising revisions
-                    score = min(85.0, 70.0 + pct_change * 100)
+                    trend_score = min(90.0, 70.0 + pct_change * 100)
                     signal = "rising"
                 elif pct_change < -0.03:
-                    # Falling revisions
-                    score = max(15.0, 30.0 + pct_change * 100)  # pct_change is negative
+                    trend_score = max(10.0, 30.0 + pct_change * 100)
                     signal = "falling"
                 else:
-                    score = 50.0
+                    trend_score = 50.0
                     signal = "flat"
             else:
-                score = 50.0
+                trend_score = 50.0
                 signal = "no_data"
+
+            # --- Signal 2: Analyst breadth (eps_revisions) ---
+            breadth_score = 50.0  # Default neutral
+            analysts_up = None
+            analysts_down = None
+
+            if eps_revisions is not None and not eps_revisions.empty:
+                if "0q" in eps_revisions.index:
+                    rev_row = eps_revisions.loc["0q"]
+                else:
+                    rev_row = eps_revisions.iloc[0]
+
+                up_30 = rev_row.get("upLast30days", 0) or 0
+                down_30 = rev_row.get("downLast30days", 0) or 0
+                analysts_up = int(up_30)
+                analysts_down = int(down_30)
+                total = analysts_up + analysts_down
+
+                if total > 0:
+                    # Ratio of up/(up+down): 1.0 = all up, 0.0 = all down
+                    up_ratio = analysts_up / total
+                    # Map to score: 0.0 → 10, 0.5 → 50, 1.0 → 90
+                    breadth_score = 10.0 + up_ratio * 80.0
+
+            # --- Combine: 70% trend + 30% breadth ---
+            combined_score = round(0.7 * trend_score + 0.3 * breadth_score, 1)
+
+            # Adjust signal based on combined score
+            if combined_score >= 70:
+                signal = "rising"
+            elif combined_score <= 30:
+                signal = "falling"
+            elif 45 <= combined_score <= 55:
+                signal = "flat"
+            # else keep original signal from trend
 
             enriched.append({
                 "symbol": sym,
-                "eps_revision_score": round(score, 1),
+                "eps_revision_score": combined_score,
                 "revision_signal": signal,
                 "next_quarter_eps_avg": next_q_eps,
+                "analysts_up": analysts_up,
+                "analysts_down": analysts_down,
             })
 
         except Exception as e:
