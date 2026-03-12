@@ -1,5 +1,16 @@
 import { MarkdownText } from "@/components/assistant-ui/markdown-text";
 import { ToolFallback } from "@/components/assistant-ui/tool-fallback";
+import {
+  StockQuoteUI,
+  PortfolioUI,
+  MarketBreadthUI,
+  SectorAnalysisUI,
+  EpsEstimatesUI,
+  TechnicalAnalysisUI,
+  FundamentalAnalysisUI,
+  PeerComparisonUI,
+  PerformanceComparisonUI,
+} from "@/components/assistant-ui/tool-uis";
 import { TooltipIconButton } from "@/components/assistant-ui/tooltip-icon-button";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -37,6 +48,15 @@ export const Thread: FC = () => {
   return (
     <>
       <ReadFileUI />
+      <StockQuoteUI />
+      <PortfolioUI />
+      <MarketBreadthUI />
+      <SectorAnalysisUI />
+      <EpsEstimatesUI />
+      <TechnicalAnalysisUI />
+      <FundamentalAnalysisUI />
+      <PeerComparisonUI />
+      <PerformanceComparisonUI />
       <ThreadPrimitive.Root
         className="aui-root aui-thread-root @container flex h-full flex-col bg-background"
         style={{ ["--thread-max-width" as string]: "44rem" }}

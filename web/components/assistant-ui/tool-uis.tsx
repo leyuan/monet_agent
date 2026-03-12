@@ -3,6 +3,7 @@
 import { makeAssistantToolUI } from "@assistant-ui/react";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   TrendingUpIcon,
   TrendingDownIcon,
@@ -75,6 +76,19 @@ function ToolCard({ children }: { children: React.ReactNode }) {
   );
 }
 
+function ToolCardSkeleton({ lines = 3 }: { lines?: number }) {
+  return (
+    <ToolCard>
+      <div className="space-y-2">
+        <Skeleton className="h-4 w-24" />
+        {Array.from({ length: lines }).map((_, i) => (
+          <Skeleton key={i} className="h-3 w-full" />
+        ))}
+      </div>
+    </ToolCard>
+  );
+}
+
 // ============================================================
 // Stock Quote
 // ============================================================
@@ -82,7 +96,7 @@ function ToolCard({ children }: { children: React.ReactNode }) {
 export const StockQuoteUI = makeAssistantToolUI({
   toolName: "get_stock_quote",
   render: ({ result }) => {
-    if (!result) return null;
+    if (!result) return <ToolCardSkeleton lines={2} />;
     const data = typeof result === "string" ? JSON.parse(result) : result;
     const isIndex = "price" in data;
 
@@ -131,7 +145,7 @@ export const StockQuoteUI = makeAssistantToolUI({
 export const PortfolioUI = makeAssistantToolUI({
   toolName: "get_my_portfolio",
   render: ({ result }) => {
-    if (!result) return null;
+    if (!result) return <ToolCardSkeleton lines={4} />;
     const data = typeof result === "string" ? JSON.parse(result) : result;
     const positions = data.positions || [];
 
@@ -195,7 +209,7 @@ export const PortfolioUI = makeAssistantToolUI({
 export const MarketBreadthUI = makeAssistantToolUI({
   toolName: "market_breadth",
   render: ({ result }) => {
-    if (!result) return null;
+    if (!result) return <ToolCardSkeleton lines={3} />;
     const data = typeof result === "string" ? JSON.parse(result) : result;
 
     const regimeColor = data.regime?.includes("bull") || data.regime?.includes("uptrend")
@@ -249,7 +263,7 @@ function BreadthBar({ label, value }: { label: string; value: number }) {
 export const SectorAnalysisUI = makeAssistantToolUI({
   toolName: "sector_analysis",
   render: ({ result }) => {
-    if (!result) return null;
+    if (!result) return <ToolCardSkeleton lines={5} />;
     const data = typeof result === "string" ? JSON.parse(result) : result;
     const sectors = (data.sectors || [])
       .slice()
@@ -309,7 +323,7 @@ export const SectorAnalysisUI = makeAssistantToolUI({
 export const EpsEstimatesUI = makeAssistantToolUI({
   toolName: "eps_estimates",
   render: ({ result }) => {
-    if (!result) return null;
+    if (!result) return <ToolCardSkeleton lines={4} />;
     const data = typeof result === "string" ? JSON.parse(result) : result;
     if (data.error || !data.estimates?.length) return null;
 
@@ -364,7 +378,7 @@ export const EpsEstimatesUI = makeAssistantToolUI({
 export const TechnicalAnalysisUI = makeAssistantToolUI({
   toolName: "technical_analysis",
   render: ({ result }) => {
-    if (!result) return null;
+    if (!result) return <ToolCardSkeleton lines={4} />;
     const data = typeof result === "string" ? JSON.parse(result) : result;
     if (data.error) return null;
 
@@ -438,7 +452,7 @@ export const TechnicalAnalysisUI = makeAssistantToolUI({
 export const FundamentalAnalysisUI = makeAssistantToolUI({
   toolName: "fundamental_analysis",
   render: ({ result }) => {
-    if (!result) return null;
+    if (!result) return <ToolCardSkeleton lines={6} />;
     const data = typeof result === "string" ? JSON.parse(result) : result;
 
     const recColor = data.recommendation === "strong_buy" || data.recommendation === "buy"
@@ -498,7 +512,7 @@ function Metric({ label, value, highlight }: { label: string; value: string | un
 export const PeerComparisonUI = makeAssistantToolUI({
   toolName: "peer_comparison",
   render: ({ result }) => {
-    if (!result) return null;
+    if (!result) return <ToolCardSkeleton lines={4} />;
     const data = typeof result === "string" ? JSON.parse(result) : result;
     if (data.error || !data.comparisons?.length) return null;
 
@@ -546,7 +560,7 @@ export const PeerComparisonUI = makeAssistantToolUI({
 export const PerformanceComparisonUI = makeAssistantToolUI({
   toolName: "get_performance_comparison",
   render: ({ result }) => {
-    if (!result) return null;
+    if (!result) return <ToolCardSkeleton lines={3} />;
     const data = typeof result === "string" ? JSON.parse(result) : result;
     if (data.error) return null;
 
