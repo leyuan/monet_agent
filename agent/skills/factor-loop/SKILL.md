@@ -146,9 +146,10 @@ For every BUY/SELL/HOLD/WAIT, call `record_decision()`:
 - `reasoning` = factor-based summary, not narrative
 
 ### Save factor rankings snapshot
+Pass through the EXACT objects from `score_universe()` output — do NOT rename or abbreviate fields:
 ```
 write_agent_memory("factor_rankings", {
-    "top_10": [top 10 from rankings],
+    "top_10": rankings[:10],  // each entry must include: rank, symbol, sector, composite_score, momentum_score, quality_score, value_score, eps_revision_score, current_price
     "factor_weights": weights,
     "scored_at": timestamp,
     "universe_size": ...,
@@ -158,8 +159,9 @@ write_agent_memory("factor_rankings", {
 
 ### Write journal entry
 Type: "market_scan" or "trade"
-- Include: universe size scored, top 5 rankings, signals generated, actions taken
-- Keep it concise — factor scores, not essays
+- **MAX 300 words** — this is a factor log, not an essay
+- Include: top 10 rankings table, signals generated, actions taken, regime summary
+- Do NOT write "Key Findings", "Insights", strategic commentary, or grades — just the data
 - Set `run_source="factor_loop"` (or `"factor_loop_weekend"` on Saturday)
 
 ---

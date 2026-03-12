@@ -2139,11 +2139,19 @@ def enrich_eps_revisions(symbols: list[str]) -> dict:
     enriched = []
 
     for i, sym in enumerate(symbols[:20]):  # Hard cap at 20 for rate limiting
-        if i > 0 and i % 10 == 0:
-            time.sleep(2)  # Rate limit buffer
+        if i > 0:
+            time.sleep(1)  # Finnhub free tier: 60 calls/min, pace at 1/sec
 
         try:
-            data = fh.company_eps_estimates(sym, freq="quarterly")
+            # Retry once on 403 (rate limit) with backoff
+            try:
+                data = fh.company_eps_estimates(sym, freq="quarterly")
+            except Exception as retry_err:
+                if "403" in str(retry_err):
+                    time.sleep(5)  # Back off on rate limit
+                    data = fh.company_eps_estimates(sym, freq="quarterly")
+                else:
+                    raise retry_err
             estimates = data.get("data", [])
 
             if len(estimates) >= 2:
