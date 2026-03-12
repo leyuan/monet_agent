@@ -46,6 +46,10 @@ from stock_agent.technical import compute_indicators
 
 logger = logging.getLogger(__name__)
 
+# --- Factor scoring cache ---
+_factor_cache: dict = {"data": None, "timestamp": 0.0}
+_FACTOR_CACHE_TTL = 14400  # 4 hours
+
 # Sector ETF mapping for sector_analysis and market_breadth
 SECTOR_ETFS = {
     "XLK": "Technology",
@@ -907,15 +911,20 @@ def place_order(
     confidence: float | None = None,
     take_profit_price: float | None = None,
     stop_loss_price: float | None = None,
+    composite_score: float | None = None,
 ) -> dict:
     """Place a trade order via Alpaca paper trading, optionally as a bracket order.
 
     IMPORTANT: Always run check_trade_risk first. This tool should only be called
     from the autonomous loop, never from chat mode.
 
-    Bracket orders: If take_profit_price and/or stop_loss_price are provided,
-    the order is submitted as a bracket order with automatic take-profit and
-    stop-loss legs. Both legs use GTC (good-til-canceled) time-in-force.
+    Order type selection (when using factor-based scoring):
+    - composite_score > 80 → Market order (get the fill)
+    - composite_score 70-80 → Limit 1% below current price
+    - composite_score 60-70 → Limit 3% below current price
+
+    When composite_score is provided and order_type/limit_price are not explicitly
+    set, the order type is auto-derived from the composite score.
 
     For buy orders, if stop_loss_price is not provided, a default 5% stop-loss
     is auto-calculated from the entry price.
@@ -927,13 +936,32 @@ def place_order(
         order_type: "market" or "limit".
         limit_price: Required if order_type is "limit".
         thesis: The reasoning behind this trade.
-        confidence: Confidence score 0.0-1.0.
+        confidence: Confidence score 0.0-1.0, or composite_score/100.
         take_profit_price: Target exit price for take-profit leg.
         stop_loss_price: Stop price for stop-loss leg.
+        composite_score: Factor composite score (0-100). When provided, auto-derives
+            order_type and limit_price based on score thresholds.
 
     Returns:
         Dict with order details and trade record.
     """
+    # Auto-derive order type from composite score for buys
+    if composite_score is not None and side == "buy" and limit_price is None:
+        if composite_score > 80:
+            order_type = "market"
+        else:
+            order_type = "limit"
+            quote = get_quote(symbol)
+            current = float(quote.get("last_price", 0))
+            if current > 0:
+                if composite_score >= 70:
+                    limit_price = round(current * 0.99, 2)  # 1% below
+                else:
+                    limit_price = round(current * 0.97, 2)  # 3% below
+
+        # Set confidence from composite if not provided
+        if confidence is None:
+            confidence = round(composite_score / 100, 2)
     # Risk check
     risk = check_risk(symbol, side, quantity, limit_price)
     if not risk["approved"]:
@@ -1302,23 +1330,34 @@ def update_stock_analysis(
     bear_case: str | None = None,
     fundamentals_score: float | None = None,
     status: str = "watching",
+    composite_score: float | None = None,
+    momentum_score: float | None = None,
+    quality_score: float | None = None,
+    value_score: float | None = None,
+    eps_revision_score: float | None = None,
 ) -> dict:
     """Update structured analysis for a stock in memory and sync to watchlist.
 
-    Call this in Step 6 of the trading loop after completing fundamental + technical
-    analysis. This replaces the old pattern of separate manage_watchlist() +
-    write_agent_memory(watchlist_rationale_*) calls.
+    Call this after analysis to persist stock data. Works with both factor-based
+    scoring (composite_score, momentum_score, etc.) and legacy subjective analysis.
+
+    When factor scores are provided, thesis is auto-enhanced with score summary.
 
     Args:
         symbol: Stock ticker (e.g. "AAPL").
         thesis: Core investment thesis (1-2 sentences).
         target_entry: Price to buy at.
         target_exit: Price to take profit at.
-        confidence: Conviction level (0.0–1.0).
+        confidence: Conviction level (0.0–1.0) or composite_score/100.
         bull_case: Best-case scenario description.
         bear_case: Worst-case scenario description.
         fundamentals_score: Optional 0-10 fundamentals quality score.
         status: "watching", "buying", "holding", "exited".
+        composite_score: Factor composite score (0-100).
+        momentum_score: Momentum factor score (0-100).
+        quality_score: Quality factor score (0-100).
+        value_score: Value factor score (0-100).
+        eps_revision_score: EPS revision factor score (0-100).
 
     Returns:
         Confirmation with the stored analysis.
@@ -1347,6 +1386,18 @@ def update_stock_analysis(
         value["bear_case"] = bear_case
     if fundamentals_score is not None:
         value["fundamentals_score"] = round(fundamentals_score, 1)
+
+    # Factor scores
+    if composite_score is not None:
+        value["composite_score"] = round(composite_score, 1)
+    if momentum_score is not None:
+        value["momentum_score"] = round(momentum_score, 1)
+    if quality_score is not None:
+        value["quality_score"] = round(quality_score, 1)
+    if value_score is not None:
+        value["value_score"] = round(value_score, 1)
+    if eps_revision_score is not None:
+        value["eps_revision_score"] = round(eps_revision_score, 1)
 
     key = f"stock:{symbol.upper()}"
     result = db_write_memory(key, value)
@@ -1871,6 +1922,396 @@ def position_health_check(symbol: str) -> dict:
 
 
 # ============================================================
+# Factor-Based Scoring tools
+# ============================================================
+
+
+def _percentile_rank(series: pd.Series) -> pd.Series:
+    """Compute percentile rank (0-100) for each value in a Series."""
+    return series.rank(pct=True, na_option="keep") * 100
+
+
+def score_universe(top_n: int = 30) -> dict:
+    """Score the S&P 500 + S&P 400 universe on momentum, quality, and value factors.
+
+    This is a systematic, deterministic scoring pipeline that replaces subjective
+    LLM analysis. All computation happens in Python — no LLM reasoning needed.
+
+    Pipeline:
+    1. Bulk download 1Y prices for ~900 tickers
+    2. Compute momentum factor (12m-ex-1m + 3m returns)
+    3. Pre-filter top ~150 by momentum, fetch fundamentals
+    4. Compute quality factor (margin + ROE - leverage)
+    5. Compute value factor (inverse forward P/E within sector)
+    6. Composite = 0.35*momentum + 0.30*quality + 0.20*value + 0.15*eps_revision (eps starts at 50)
+    7. Return top_n ranked stocks
+
+    Uses a 4-hour cache to avoid redundant downloads within the same trading day.
+
+    Args:
+        top_n: Number of top-ranked stocks to return (default 30).
+
+    Returns:
+        Dict with universe_size, scored count, factor_weights, and rankings list.
+    """
+    global _factor_cache
+
+    now = time.time()
+    if _factor_cache["data"] and (now - _factor_cache["timestamp"]) < _FACTOR_CACHE_TTL:
+        cached = _factor_cache["data"]
+        # Re-slice to requested top_n
+        return {
+            **cached,
+            "rankings": cached["rankings"][:top_n],
+            "cached": True,
+        }
+
+    tickers = get_sp500_sp400_tickers()
+    if not tickers:
+        return {"error": "Could not fetch ticker universe", "rankings": []}
+
+    # Step 1: Bulk download 1Y of daily closes
+    try:
+        price_data = yf.download(tickers, period="1y", progress=False, threads=True)
+    except Exception as e:
+        return {"error": f"Price download failed: {e}", "rankings": []}
+
+    if price_data.empty:
+        return {"error": "No price data returned", "rankings": []}
+
+    close = price_data["Close"]
+
+    # Step 2: Momentum factor
+    # 12-month return excluding last month (classic momentum)
+    if len(close) >= 252:
+        ret_12m_ex1m = (close.iloc[-22] / close.iloc[0] - 1).dropna()
+    else:
+        ret_12m_ex1m = (close.iloc[-22] / close.iloc[0] - 1).dropna() if len(close) > 22 else pd.Series(dtype=float)
+
+    # 3-month return
+    lookback_3m = min(63, len(close) - 1)
+    ret_3m = (close.iloc[-1] / close.iloc[-lookback_3m] - 1).dropna() if lookback_3m > 0 else pd.Series(dtype=float)
+
+    # Combined momentum score: 50% 12m-ex-1m + 50% 3m
+    common_syms = ret_12m_ex1m.index.intersection(ret_3m.index)
+    if len(common_syms) == 0:
+        return {"error": "No valid momentum data", "rankings": []}
+
+    momentum_rank_12m = _percentile_rank(ret_12m_ex1m[common_syms])
+    momentum_rank_3m = _percentile_rank(ret_3m[common_syms])
+    momentum_score = 0.5 * momentum_rank_12m + 0.5 * momentum_rank_3m
+
+    # Step 3: Pre-filter top ~150 by momentum for fundamental lookups
+    top_momentum = momentum_score.nlargest(150)
+    candidates = top_momentum.index.tolist()
+
+    # Step 4-6: Fetch fundamentals and compute quality + value factors
+    results = []
+    sector_fwd_pe: dict[str, list] = {}  # For within-sector value ranking
+
+    for sym in candidates:
+        try:
+            info = yf.Ticker(sym).info
+            sector = info.get("sector", "Unknown")
+            fwd_pe = info.get("forwardPE")
+            profit_margin = info.get("profitMargins")
+            roe = info.get("returnOnEquity")
+            de = info.get("debtToEquity")
+            current_price = info.get("currentPrice") or info.get("regularMarketPrice")
+
+            results.append({
+                "symbol": sym,
+                "sector": sector,
+                "forward_pe": fwd_pe,
+                "profit_margin": profit_margin,
+                "roe": roe,
+                "debt_to_equity": de,
+                "current_price": current_price,
+                "return_3m": round(float(ret_3m.get(sym, 0)), 4),
+                "return_12m_ex1m": round(float(ret_12m_ex1m.get(sym, 0)), 4),
+                "momentum_score": round(float(momentum_score.get(sym, 0)), 1),
+            })
+
+            # Track forward P/E by sector for within-sector value ranking
+            if fwd_pe and fwd_pe > 0:
+                sector_fwd_pe.setdefault(sector, []).append((sym, fwd_pe))
+
+        except Exception:
+            continue
+
+    if not results:
+        return {"error": "No fundamental data retrieved", "rankings": []}
+
+    # Compute quality factor
+    margins = pd.Series({r["symbol"]: r["profit_margin"] for r in results if r["profit_margin"] is not None})
+    roes = pd.Series({r["symbol"]: r["roe"] for r in results if r["roe"] is not None})
+    leverages = pd.Series({r["symbol"]: r["debt_to_equity"] for r in results if r["debt_to_equity"] is not None})
+
+    margin_rank = _percentile_rank(margins)
+    roe_rank = _percentile_rank(roes)
+    leverage_rank = _percentile_rank(leverages)
+
+    # Compute within-sector value factor (lower forward P/E = higher value)
+    value_scores: dict[str, float] = {}
+    for sector, pe_list in sector_fwd_pe.items():
+        if len(pe_list) < 2:
+            for sym, _ in pe_list:
+                value_scores[sym] = 50.0  # Not enough peers
+            continue
+        syms, pes = zip(*pe_list)
+        pe_series = pd.Series(pes, index=syms)
+        # Invert: lower P/E = higher score
+        value_rank = 100 - _percentile_rank(pe_series)
+        for s in syms:
+            if s in value_rank.index and not pd.isna(value_rank[s]):
+                value_scores[s] = round(float(value_rank[s]), 1)
+
+    # Assemble final scores
+    factor_weights = {"momentum": 0.35, "quality": 0.30, "value": 0.20, "eps_revision": 0.15}
+
+    for r in results:
+        sym = r["symbol"]
+        # Quality: 0.4*margin + 0.4*roe + 0.2*(100-leverage)
+        m_rank = float(margin_rank.get(sym, 50))
+        r_rank = float(roe_rank.get(sym, 50))
+        l_rank = float(leverage_rank.get(sym, 50))
+        quality = 0.4 * m_rank + 0.4 * r_rank + 0.2 * (100 - l_rank)
+
+        value = value_scores.get(sym, 50.0)
+        mom = r["momentum_score"]
+        eps_rev = 50.0  # Default — enriched later by enrich_eps_revisions
+
+        composite = (
+            factor_weights["momentum"] * mom
+            + factor_weights["quality"] * quality
+            + factor_weights["value"] * value
+            + factor_weights["eps_revision"] * eps_rev
+        )
+
+        r["quality_score"] = round(quality, 1)
+        r["value_score"] = round(value, 1)
+        r["eps_revision_score"] = eps_rev
+        r["composite_score"] = round(composite, 1)
+
+    # Sort by composite, take top
+    results.sort(key=lambda x: x["composite_score"], reverse=True)
+
+    # Add rank
+    for i, r in enumerate(results):
+        r["rank"] = i + 1
+
+    # Cache all results (not just top_n) so enrich and generate can use them
+    cache_payload = {
+        "universe_size": len(tickers),
+        "scored": len(results),
+        "factor_weights": factor_weights,
+        "rankings": results,
+        "scored_at": datetime.now().strftime("%Y-%m-%d %I:%M %p"),
+    }
+    _factor_cache["data"] = cache_payload
+    _factor_cache["timestamp"] = now
+
+    return {
+        **cache_payload,
+        "rankings": results[:top_n],
+        "cached": False,
+    }
+
+
+def enrich_eps_revisions(symbols: list[str]) -> dict:
+    """Enrich top-ranked stocks with EPS revision scores from Finnhub.
+
+    For each symbol, fetches quarterly EPS estimates and scores based on
+    revision direction:
+    - Rising revisions → 70-85
+    - Flat → 50
+    - Falling revisions → 15-30
+
+    Respects Finnhub free tier rate limit (60 calls/min) with built-in delays.
+
+    Args:
+        symbols: List of ticker symbols to enrich (recommended: top 20).
+
+    Returns:
+        Dict with enriched list of symbols and their EPS revision scores.
+    """
+    fh = get_finnhub()
+    enriched = []
+
+    for i, sym in enumerate(symbols[:20]):  # Hard cap at 20 for rate limiting
+        if i > 0 and i % 10 == 0:
+            time.sleep(2)  # Rate limit buffer
+
+        try:
+            data = fh.company_eps_estimates(sym, freq="quarterly")
+            estimates = data.get("data", [])
+
+            if len(estimates) >= 2:
+                curr = estimates[0].get("epsAvg")
+                nxt = estimates[1].get("epsAvg")
+
+                if curr is not None and nxt is not None:
+                    if nxt > curr * 1.03:
+                        # Rising revisions
+                        pct_change = (nxt - curr) / abs(curr) if curr != 0 else 0
+                        score = min(85, 70 + pct_change * 100)
+                        signal = "rising"
+                    elif nxt < curr * 0.97:
+                        # Falling revisions
+                        pct_change = (curr - nxt) / abs(curr) if curr != 0 else 0
+                        score = max(15, 30 - pct_change * 100)
+                        signal = "falling"
+                    else:
+                        score = 50.0
+                        signal = "flat"
+                else:
+                    score = 50.0
+                    signal = "no_data"
+
+                next_q_eps = estimates[0].get("epsAvg")
+            else:
+                score = 50.0
+                signal = "insufficient_data"
+                next_q_eps = None
+
+            enriched.append({
+                "symbol": sym,
+                "eps_revision_score": round(score, 1),
+                "revision_signal": signal,
+                "next_quarter_eps_avg": next_q_eps,
+            })
+
+        except Exception as e:
+            enriched.append({
+                "symbol": sym,
+                "eps_revision_score": 50.0,
+                "revision_signal": "error",
+                "next_quarter_eps_avg": None,
+                "error": str(e),
+            })
+
+    return {"enriched": enriched, "count": len(enriched)}
+
+
+def generate_factor_rankings(
+    universe_scores: list[dict],
+    eps_enrichment: list[dict],
+    held_symbols: list[str],
+) -> dict:
+    """Merge EPS revision scores, recompute composites, and produce BUY/SELL/HOLD signals.
+
+    Pure computation — no API calls. Takes output from score_universe() and
+    enrich_eps_revisions() and produces actionable signals.
+
+    Signal logic:
+    - BUY: Top 20 by composite, not currently held, composite > 70
+    - HOLD: Currently held, still in top 50
+    - SELL: Currently held, dropped below rank 100 OR eps_revision < 30
+
+    Position sizing: Equal weight with 20% cash buffer, max 8 positions.
+
+    Args:
+        universe_scores: The rankings list from score_universe().
+        eps_enrichment: The enriched list from enrich_eps_revisions().
+        held_symbols: List of currently held ticker symbols.
+
+    Returns:
+        Dict with buy_signals, sell_signals, hold_signals, and position sizing.
+    """
+    # Build EPS revision lookup
+    eps_lookup = {e["symbol"]: e["eps_revision_score"] for e in eps_enrichment}
+
+    # Factor weights (matching score_universe defaults)
+    weights = {"momentum": 0.35, "quality": 0.30, "value": 0.20, "eps_revision": 0.15}
+
+    # Update composite scores with actual EPS revision data
+    for stock in universe_scores:
+        sym = stock["symbol"]
+        if sym in eps_lookup:
+            old_eps = stock.get("eps_revision_score", 50.0)
+            new_eps = eps_lookup[sym]
+            stock["eps_revision_score"] = new_eps
+            # Recompute composite
+            stock["composite_score"] = round(
+                weights["momentum"] * stock.get("momentum_score", 50)
+                + weights["quality"] * stock.get("quality_score", 50)
+                + weights["value"] * stock.get("value_score", 50)
+                + weights["eps_revision"] * new_eps,
+                1,
+            )
+
+    # Re-sort by composite
+    universe_scores.sort(key=lambda x: x.get("composite_score", 0), reverse=True)
+
+    # Re-rank
+    for i, stock in enumerate(universe_scores):
+        stock["rank"] = i + 1
+
+    held_set = {s.upper() for s in held_symbols}
+
+    # Build signal lists
+    buy_signals = []
+    sell_signals = []
+    hold_signals = []
+
+    for stock in universe_scores:
+        sym = stock["symbol"]
+        rank = stock["rank"]
+        composite = stock.get("composite_score", 0)
+        eps_rev = stock.get("eps_revision_score", 50)
+
+        if sym in held_set:
+            # Held position evaluation
+            if rank > 100 or eps_rev < 30:
+                sell_signals.append({
+                    **stock,
+                    "signal": "SELL",
+                    "reason": f"Rank #{rank}" + (", falling EPS revisions" if eps_rev < 30 else ", dropped out of top 100"),
+                })
+            elif rank <= 50:
+                hold_signals.append({
+                    **stock,
+                    "signal": "HOLD",
+                    "reason": f"Rank #{rank}, still in top 50",
+                })
+            else:
+                hold_signals.append({
+                    **stock,
+                    "signal": "HOLD",
+                    "reason": f"Rank #{rank}, between 50-100 — monitoring",
+                })
+        else:
+            # Not held — potential buy
+            if rank <= 20 and composite > 70:
+                buy_signals.append({
+                    **stock,
+                    "signal": "BUY",
+                    "reason": f"Rank #{rank}, composite {composite}",
+                })
+
+    # Position sizing: equal weight, 20% cash buffer, max 8 positions
+    current_positions = len(held_set)
+    max_positions = 8
+    available_slots = max(0, max_positions - current_positions)
+    position_weight_pct = round(80.0 / max_positions, 1)  # 10% each with 20% cash buffer
+
+    return {
+        "buy_signals": buy_signals[:available_slots],  # Only as many as we have room for
+        "sell_signals": sell_signals,
+        "hold_signals": hold_signals,
+        "total_ranked": len(universe_scores),
+        "position_sizing": {
+            "max_positions": max_positions,
+            "current_positions": current_positions,
+            "available_slots": available_slots,
+            "target_weight_pct": position_weight_pct,
+            "cash_buffer_pct": 20.0,
+        },
+        "factor_weights": weights,
+    }
+
+
+# ============================================================
 # Price Alert tools
 # ============================================================
 
@@ -1960,6 +2401,10 @@ AUTONOMOUS_TOOLS = [
     get_performance_comparison,
     position_health_check,
     check_watchlist_alerts,
+    # Factor-based scoring tools
+    score_universe,
+    enrich_eps_revisions,
+    generate_factor_rankings,
 ]
 
 def submit_user_insight(

@@ -6,24 +6,74 @@ Ongoing checklist of features/behaviors to verify after deployment. When reviewi
 
 ## Pending Verification
 
+### Factor-Based Scoring Pipeline (first factor-loop run)
+**Trigger**: First cron run using `/skills/factor-loop/SKILL.md`.
+- [ ] `score_universe()` returns ~150 scored stocks in < 2 minutes
+- [ ] All factor scores are 0-100 (momentum, quality, value, composite)
+- [ ] `eps_revision_score` defaults to 50 before enrichment
+- [ ] 4-hour cache works — second call in same window returns `cached: true`
+- [ ] `enrich_eps_revisions()` processes 20 symbols without rate limit errors
+- [ ] Finnhub calls stay under 60/min limit
+- [ ] EPS revision scores: rising → 70-85, flat → 50, falling → 15-30
+- [ ] `generate_factor_rankings()` produces correct BUY/SELL/HOLD signals
+- [ ] BUY signals: top 20 by composite, not held, composite > 70
+- [ ] SELL signals: held stocks below rank 100 OR eps_revision < 30
+- [ ] HOLD signals: held stocks still in top 50
+- [ ] Existing positions are evaluated (not auto-dumped)
+
+### Composite-Based Order Types (first factor-loop trade)
+**Trigger**: First BUY signal executed via factor-loop.
+- [ ] `composite_score` parameter passed to `place_order()`
+- [ ] Score > 80 → market order placed
+- [ ] Score 70-80 → limit order 1% below current price
+- [ ] Score 60-70 → limit order 3% below current price
+- [ ] `confidence` auto-derived as `composite_score / 100`
+
+### Anti-Churn Rules (accumulates over time)
+**Trigger**: After factor-loop has been running for 1+ week.
+- [ ] No positions sold within 5 trading days of purchase (unless stop-loss)
+- [ ] SELL only triggers below rank 100 or falling EPS revisions
+- [ ] Rankings are stable day-to-day (3m+12m momentum windows smooth out noise)
+
+### Factor Rankings Memory (first factor-loop run)
+**Trigger**: First completed factor-loop run.
+- [ ] `factor_rankings` memory key written with top_10, factor_weights, scored_at
+- [ ] `update_stock_analysis()` includes composite_score, momentum_score, quality_score, value_score, eps_revision_score
+- [ ] `record_decision()` uses `composite_score / 100` as confidence
+- [ ] Journal entry type is "market_scan" with `run_source="factor_loop"`
+
+### Updated About Me Page (after deploy)
+**Trigger**: After Vercel redeploy with factor-based about-me component.
+- [ ] Bio mentions "systematic, factor-based AI investor"
+- [ ] Factor weights displayed (Momentum X%, Quality X%, Value X%, EPS Revision X%)
+- [ ] Top 5 factor rankings shown with composite scores
+- [ ] No reference to explore/balanced/exploit lifecycle
+- [ ] Skills section shows factor-based capabilities
+
+### Reflection with Factor Evaluation (next 4pm run after factor-loop)
+**Trigger**: First 4pm reflection after a factor-loop run.
+- [ ] Reflection evaluates factor performance (did high-composite stocks move favorably?)
+- [ ] Factor weight assessment included (which factors contributing to winners?)
+- [ ] No reference to stage management or subjective confidence calibration
+
+### Weekly Review Factor Optimization (next Sunday run)
+**Trigger**: First Sunday weekly review after factor system is active.
+- [ ] Factor attribution analysis performed (which factor drove winners/losers?)
+- [ ] Ranking stability assessed (turnover in top 20 vs last week)
+- [ ] Factor weight adjustment considered (±0.05 max per week)
+- [ ] If adjusted, `factor_weights` memory updated with reason
+
 ### Post-Earnings Protocol (MU — March 19 morning run)
 **Trigger**: MU reports earnings March 18 after market close. First 10am run on March 19 tests the new protocol.
-- [ ] Agent treats MU as high-priority in Step 2 (not buried in normal flow)
+- [ ] Agent treats MU as high-priority in Step 3.5 (earnings reaction)
 - [ ] Runs `internet_search("MU earnings results Q2 2026")` for actual numbers
-- [ ] Runs `eps_estimates("MU")` to check if forward estimates revised
-- [ ] Runs `fundamental_analysis("MU")` for updated metrics
+- [ ] LLM interprets earnings qualitatively (the speed edge)
+- [ ] Decision logged with `source: earnings_reaction` in reasoning
+- [ ] Max 1-2 earnings-driven actions in the run
 - [ ] Compares actual EPS to the `eps_estimate: 8.9747` from `upcoming_earnings` memory
-- [ ] Writes structured `earnings_reaction:MU` memory with surprise_pct, guidance, thesis_impact
-- [ ] Updates `stock:MU` confidence based on results
-- [ ] If thesis broken → flags for SELL in Step 7
-- [ ] If thesis strengthened → flags as BUY candidate in Step 7
-- [ ] No new MU position opened in the 5 days before earnings (pre-earnings protocol)
-
-### EPS Estimates Tool (next trading loop run)
-**Trigger**: First trading loop run after March 11 deploy.
-- [ ] `eps_estimates()` called during Step 5 for at least one analyzed stock
-- [ ] Revision signal (rising/falling/flat) included in analysis reasoning
-- [ ] EPS estimate trend factored into confidence score
+- [ ] Writes structured `earnings_reaction:MU` memory
+- [ ] If thesis broken → SELL signal generated
+- [ ] If thesis strengthened → fast-track BUY before analyst revisions
 
 ### Daily Recap Format (next 4pm run)
 **Trigger**: Next weekday 4pm reflection.
@@ -46,6 +96,13 @@ Ongoing checklist of features/behaviors to verify after deployment. When reviewi
 - [ ] Alpha shows a real number instead of "—"
 - [ ] `deployed_pct` column populated in equity_snapshots
 - [ ] Alpha is reasonable (not -22% from cash drag)
+
+### Factor vs Legacy Comparison (1 week after parallel run)
+**Trigger**: After running both factor-loop and trading-loop for 1 week.
+- [ ] Compare journal entries: factor-loop has concise factor scores, not narrative essays
+- [ ] Compare decision quality: do high-composite picks outperform subjective picks?
+- [ ] Compare churn: factor system should have fewer trades due to anti-churn rules
+- [ ] Decision: full cutover or continue parallel
 
 ---
 
@@ -81,7 +138,19 @@ FROM trades WHERE created_at >= CURRENT_DATE ORDER BY created_at;
 SELECT key, updated_at FROM agent_memory
 WHERE updated_at >= CURRENT_DATE ORDER BY updated_at DESC;
 
+-- Factor rankings snapshot
+SELECT value FROM agent_memory WHERE key = 'factor_rankings';
+
+-- Factor weights
+SELECT value FROM agent_memory WHERE key = 'factor_weights';
+
 -- Earnings tracking
 SELECT value FROM agent_memory WHERE key = 'upcoming_earnings';
 SELECT key, value FROM agent_memory WHERE key LIKE 'earnings_reaction:%';
+
+-- Compare factor scores on stock analyses
+SELECT key, value->>'composite_score' as composite, value->>'momentum_score' as momentum,
+       value->>'quality_score' as quality, value->>'value_score' as value_score,
+       value->>'eps_revision_score' as eps_rev
+FROM agent_memory WHERE key LIKE 'stock:%' ORDER BY (value->>'composite_score')::float DESC NULLS LAST;
 ```

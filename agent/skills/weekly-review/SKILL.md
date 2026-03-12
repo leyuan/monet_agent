@@ -1,125 +1,115 @@
 # Weekly Review Phase (Sunday)
 
-You are conducting the **Sunday weekly review**. This is your most important reflection session — step back from daily noise and assess the big picture.
+You are conducting the **Sunday weekly review**. This is your most important session — assess factor system performance, evaluate weight adjustments, and review portfolio health.
 
 ## Step 0: Load Context (ALWAYS DO THIS FIRST)
 
-Before anything else, load your full memory and recent history:
-1. Run `read_all_agent_memory()` to load all persistent beliefs at once
-2. Read this week's journal entries: `query_database("SELECT entry_type, title, content, symbols, created_at FROM agent_journal WHERE created_at >= CURRENT_DATE - INTERVAL '7 days' ORDER BY created_at DESC LIMIT 15")`
-3. Check last week's priorities from `weekly_priorities` memory to see if you addressed them
-
-## Objective
-Full portfolio and strategy review. Calibrate confidence, assess what's working, set priorities for the coming week, and manage stage transitions.
+1. Run `read_all_agent_memory()` to load all persistent beliefs
+2. Read this week's journal entries:
+   ```sql
+   SELECT entry_type, title, content, symbols, created_at FROM agent_journal
+   WHERE created_at >= CURRENT_DATE - INTERVAL '7 days' ORDER BY created_at DESC LIMIT 15
+   ```
+3. Read `factor_rankings` and `factor_weights` from memory for current state
 
 ## Workflow
 
 ### 1. Portfolio Performance Review
 - Run `get_portfolio_state` to get current holdings
-- Run `get_performance_comparison(days=7)` for precise week-over-week portfolio vs SPY comparison
+- Run `get_performance_comparison(days=7)` for week-over-week portfolio vs SPY
 - Run `get_performance_comparison(days=30)` for monthly context and max drawdown
-- Query recent trades from the past week:
+- Query recent trades:
   ```sql
   SELECT symbol, side, quantity, confidence, status, thesis, created_at
-  FROM trades
-  WHERE created_at >= NOW() - INTERVAL '7 days'
+  FROM trades WHERE created_at >= NOW() - INTERVAL '7 days'
   ORDER BY created_at DESC
   ```
-- Note alpha (portfolio return minus SPY return) — this is the number that matters
+- Note alpha (portfolio return minus SPY return)
 
-### 2. Trade Analysis
-- For each trade this week:
-  - Was the thesis correct?
-  - Did the entry timing work?
-  - How does current P&L compare to expected target?
-- Compute:
-  - Win/loss ratio (trades in profit vs at a loss)
-  - Average return per trade
-  - Best and worst trades — what drove them?
+### 2. Factor System Evaluation
+This is the most important part of the weekly review.
 
-### 3. Confidence Calibration
-- Were high-confidence (0.8+) trades actually better than low-confidence (0.6-0.7) ones?
-- If not, your confidence scoring needs adjustment
-- Look for patterns: are you overconfident in certain sectors? Underconfident in others?
-- Update your confidence scoring approach in `strategy` memory if needed
+**Signal quality analysis:**
+- For each trade this week, look up the composite score at time of entry
+- Compare: did high-composite entries (80+) produce better P&L than lower ones (60-70)?
+- Track win rate by composite score bucket
+- Compare factor-driven decisions vs any earnings-reaction overrides
 
-### 4. Strategy Assessment
-- What's working: which patterns, sectors, or approaches generated alpha?
-- What's not working: which approaches led to losses or missed opportunities?
-- Are you following your own rules? Check for:
-  - Trading without sufficient analysis
-  - Holding losers past stop loss
-  - Over-concentrating in one sector
-  - Ignoring price targets and chasing
-- Write any strategy adjustments to `strategy` memory
+**Factor attribution:**
+- Which factor contributed most to winners? (momentum? quality? EPS revision?)
+- Which factor was associated with losers?
+- Are any factors consistently misleading in the current regime?
 
-### 5. Stage Management (CRITICAL)
-Read `agent_stage` from memory and perform a thorough assessment:
+**Ranking stability:**
+- Compare this week's top 20 to last week's `factor_rankings` snapshot
+- How many stocks entered/exited the top 20?
+- High turnover might indicate momentum regime shift
 
-1. **Count watchlist profiles** (structured stock:* keys):
-   ```sql
-   SELECT COUNT(*) as count FROM agent_memory WHERE key LIKE 'stock:%'
-   ```
+### 3. Factor Weight Optimization
+Based on the evaluation above, consider adjusting factor weights:
 
-2. **Count completed trades**:
-   ```sql
-   SELECT COUNT(*) as count FROM trades WHERE status != 'canceled'
-   ```
+Current weights (from `factor_weights` memory):
+- Momentum: 0.35
+- Quality: 0.30
+- Value: 0.20
+- EPS Revision: 0.15
 
-3. **Increment `cycles_completed`** by 1
+**Adjustment rules:**
+- Only change weights by ±0.05 per week — no dramatic shifts
+- Total must equal 1.00
+- No single factor above 0.45 or below 0.10
+- In high-VIX environments (>25 sustained), shift weight from momentum to quality
+- If EPS revisions are consistently adding alpha, increase their weight
 
-4. **Assess stage transition**:
-   - **Explore → Balanced**: `watchlist_profiles >= 15` AND `cycles_completed >= 30`
-   - **Balanced → Exploit**: `total_trades >= 10` AND `watchlist_profiles >= 25`
+If adjusting, update `factor_weights` memory:
+```
+write_agent_memory("factor_weights", {
+    "momentum": 0.35,
+    "quality": 0.30,
+    "value": 0.20,
+    "eps_revision": 0.15,
+    "adjusted_at": "YYYY-MM-DD",
+    "reason": "..."
+})
+```
 
-5. If transitioning, write a special journal entry noting the transition and what it means for your approach going forward.
+### 4. Sector Concentration Check
+- From current positions + buy signals, check sector distribution
+- Flag if >40% of positions are in one sector
+- This isn't a hard block — just a risk awareness check
+- Note in journal if concentration is high
 
-6. **Write updated `agent_stage`** to memory with all current counters.
-
-### 6. User Insights Review
-Check how many user insights were submitted this week:
+### 5. User Insights Review
 ```sql
 SELECT title, content, symbols, created_at FROM agent_journal
 WHERE entry_type = 'user_insight' AND created_at >= NOW() - INTERVAL '7 days'
 ORDER BY created_at DESC
 ```
 - How many insights were submitted?
-- Did any lead to belief changes, thesis updates, or research you wouldn't have done otherwise?
-- Note this in your weekly review journal entry — it helps calibrate how useful the chat channel is as an input source.
+- Did any lead to useful earnings interpretation or risk awareness?
+- Note this in journal for accountability
 
-### 7. Set Weekly Priorities
-Based on your review, set 3-5 specific priorities for the coming week:
-- Which stocks to watch most closely (near targets)?
-- Which companies need fresh analysis?
-- Any sectors to screen for new opportunities?
-- Position management actions to consider (trim, add, exit)?
+### 6. Strategy Assessment
+- Is the factor system producing alpha vs SPY?
+- Are we churning positions (selling too quickly)?
+- Are we missing opportunities (holding cash when signals exist)?
+- Review risk settings: are they appropriate for current regime?
+- Update `strategy` memory with any observations
 
-Write these priorities to memory as `weekly_priorities`:
-```json
-{
-  "week_of": "2026-03-09",
-  "priorities": [
-    "Monitor AAPL — approaching target_entry at $185",
-    "Deep dive NVDA — earnings next week",
-    "Screen for value opportunities in Energy sector",
-    "Consider trimming MSFT if it hits $425 resistance"
-  ]
-}
-```
-
-### 8. Write Weekly Review Journal
+### 7. Write Weekly Review Journal
 Create a comprehensive journal entry of type "reflection" covering:
-- Weekly performance summary
-- Trade win/loss analysis
-- Confidence calibration results
-- Strategy adjustments made
-- Current stage and transition progress
-- Priorities for next week
-- Honest self-assessment: are you improving?
+- Weekly alpha vs SPY
+- Factor system evaluation: which factors worked, which didn't
+- Factor weight changes (if any) and reasoning
+- Sector concentration status
+- Trade count and win rate
+- Key learnings for next week
+- Honest self-assessment: is the systematic approach working?
+- Set `run_source='weekly_review'`
 
 ## Review Principles
-- Be brutally honest — the only person you're fooling is yourself
-- Focus on process, not outcomes — a good process with bad luck is still good
-- Small adjustments > big overhauls
-- Track whether your priorities from last week were addressed
-- Remember: the goal is to beat the S&P 500 consistently, not to hit home runs
+- Be data-driven — look at actual P&L by factor score bucket
+- Small weight adjustments > big overhauls
+- The goal is systematic alpha, not occasional home runs
+- If the factor system isn't working after 4+ weeks, the issue might be deeper than weights
+- Track whether factor-driven trades outperform earnings-reaction overrides

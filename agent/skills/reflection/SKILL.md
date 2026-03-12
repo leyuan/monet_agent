@@ -44,17 +44,21 @@ For each held position, run `position_health_check(symbol)`:
 - If position is up 15%+ → tighten stop to breakeven or higher (trailing stop)
 - If position approaching target_exit → consider trimming 50%
 
-### 4. Review Today's Decisions
+### 4. Factor Performance Evaluation
+- Load today's `factor_rankings` from memory
 - Load today's `decision:*` memory entries
-- For each decision (BUY, LIMIT_ORDER, WAIT, SELL):
-  - Was the reasoning solid in hindsight?
-  - Did you miss any information that was available?
-  - Would you make the same decision again?
+- For each BUY/SELL decision today:
+  - What was the composite score at time of signal?
+  - Was the fill price reasonable vs the score-implied order type?
+  - Did high-composite stocks move favorably today?
+- Track: are high-composite stocks (80+) outperforming low-composite (60-70)?
 
-### 5. Confidence Calibration
-- Are high-confidence decisions outperforming low-confidence ones?
-- Track thesis accuracy: when you predicted growth of X%, what actually happened?
-- Identify systematic biases (always too bullish? too conservative?)
+### 5. Factor Weight Assessment
+- Review factor weight performance:
+  - Are momentum-driven picks outperforming quality-driven picks?
+  - Are value picks catching up or continuing to lag?
+  - Is EPS revision signal adding alpha vs the 50-default baseline?
+- Note any observations for the weekly review to consider weight adjustments
 
 ### 6. Update Beliefs
 - Revise `market_outlook` if today's data warrants it
@@ -63,7 +67,7 @@ For each held position, run `position_health_check(symbol)`:
   - Market breadth
   - Recent P&L and drawdown
   - Sector rotation signal
-- Clean up stale `earnings_reaction_{SYMBOL}` memories (>7 days old)
+- Clean up stale `earnings_reaction:{SYMBOL}` memories (>7 days old)
 
 ### 7. Review & Cancel Stale Orders
 - Run `get_open_orders()` to see pending orders
@@ -72,42 +76,24 @@ For each held position, run `position_health_check(symbol)`:
 - **Rule: Unfilled orders you no longer believe in are dead capital.**
 
 ### 8. Clean Up Watchlist
-- Remove symbols that no longer fit your thesis
-- Update targets based on new analysis
+- Remove symbols that no longer fit factor criteria (dropped below rank 100)
+- Update targets based on new factor scores
 - Prune weak candidates
 
-### 9. Update Stage Counters
-Read `agent_stage` from memory and update:
-1. Count `stock:*` memory keys for `watchlist_profiles`:
-   ```sql
-   SELECT COUNT(*) as count FROM agent_memory WHERE key LIKE 'stock:%'
-   ```
-2. Count completed trades:
-   ```sql
-   SELECT COUNT(*) as count FROM trades WHERE status != 'canceled'
-   ```
-3. Increment `cycles_completed` by 1
-4. Check stage transitions:
-   - **Explore → Balanced**: `watchlist_profiles >= 15` AND `cycles_completed >= 30`
-   - **Balanced → Exploit**: `total_trades >= 10` AND `watchlist_profiles >= 25`
-5. Write updated `agent_stage` to memory
-
-### 10. Write Reflection
+### 9. Write Reflection
 Create a journal entry of type "reflection" covering:
 - Performance summary (wins/losses, total P&L)
-- Key lessons from today's decisions
-- Confidence calibration observations
-- Strategy adjustments (if any)
-- Current stage and progress toward next transition
+- Factor performance: did high-composite stocks outperform?
+- Factor weight observations (for weekly review)
+- Strategy observations (if any)
 - Set `run_source='eod_reflection'`
 
-### 11. Send Daily Recap (LAST STEP — weekdays only)
+### 10. Send Daily Recap (LAST STEP — weekdays only)
 Call `send_daily_recap()` to create a recap thread in the chat tab. This gives the user a summary without digging through journal entries. Do NOT skip this step.
 
 ## Reflection Principles
 - Be honest about mistakes — don't rationalize bad trades
-- Look for systematic errors, not just individual outcomes
-- Small, incremental strategy adjustments > overhauls
-- **Evaluate activity level**: Did you trade because of real edge, or because you felt you "should"?
-- **Fundamental accuracy matters most**: Track whether earnings predictions and growth assessments are correct over time
-- Most loops should result in NO trades — research-only loops are valuable
+- Focus on whether the factor system is producing good signals, not individual outcomes
+- Small, incremental observations > overhauls
+- **Evaluate signal quality**: Did factor-driven trades outperform? Are the weights right?
+- Most loops should result in NO trades — factor scoring identifies opportunity, not urgency

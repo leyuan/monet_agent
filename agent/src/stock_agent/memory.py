@@ -52,6 +52,33 @@ def _load_agent_context_inner() -> str:
     if risk_appetite:
         sections.append(f"## Risk Appetite\n{_format_value(risk_appetite['value'])}")
 
+    # --- Factor Rankings (latest snapshot) ---
+    factor_mem = mem_by_key.get("factor_rankings")
+    if factor_mem and isinstance(factor_mem.get("value"), dict):
+        fv = factor_mem["value"]
+        scored_at = fv.get("scored_at", "?")
+        rankings = fv.get("top_10", fv.get("rankings", []))[:10]
+        if rankings:
+            lines = [f"Scored at: {scored_at} | Weights: {fv.get('factor_weights', {})}"]
+            for r in rankings:
+                lines.append(
+                    f"  #{r.get('rank', '?')} {r.get('symbol', '?')} "
+                    f"(C:{r.get('composite_score', '?')} M:{r.get('momentum_score', '?')} "
+                    f"Q:{r.get('quality_score', '?')} V:{r.get('value_score', '?')} "
+                    f"E:{r.get('eps_revision_score', '?')})"
+                )
+            sections.append("## Factor Rankings\n" + "\n".join(lines))
+
+    # --- Factor Weights ---
+    fw_mem = mem_by_key.get("factor_weights")
+    if fw_mem and isinstance(fw_mem.get("value"), dict):
+        fw = fw_mem["value"]
+        sections.append(
+            f"## Factor Weights\n"
+            f"Momentum: {fw.get('momentum', 0.35)} | Quality: {fw.get('quality', 0.30)} | "
+            f"Value: {fw.get('value', 0.20)} | EPS Revision: {fw.get('eps_revision', 0.15)}"
+        )
+
     # --- Stock Analyses (structured: stock:* keys) ---
     stock_mems = sorted(
         [m for m in all_mem if m["key"].startswith("stock:")],
@@ -72,9 +99,20 @@ def _load_agent_context_inner() -> str:
                 entry = v.get("target_entry", "?")
                 exit_ = v.get("target_exit", "?")
                 status = v.get("status", "watching")
+                # Include factor scores if present
+                composite = v.get("composite_score")
+                factor_line = ""
+                if composite is not None:
+                    factor_line = (
+                        f" | Composite: {composite}"
+                        f" M:{v.get('momentum_score', '?')}"
+                        f" Q:{v.get('quality_score', '?')}"
+                        f" V:{v.get('value_score', '?')}"
+                        f" E:{v.get('eps_revision_score', '?')}"
+                    )
                 items.append(
                     f"### {symbol} (confidence: {conf}, last: {last})\n"
-                    f"Thesis: {thesis} | Entry: ${entry} | Exit: ${exit_} | Status: {status}"
+                    f"Thesis: {thesis} | Entry: ${entry} | Exit: ${exit_} | Status: {status}{factor_line}"
                 )
             else:
                 items.append(f"### {m['key'].replace('stock:', '')}\n{_format_value(v)}")

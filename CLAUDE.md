@@ -41,9 +41,10 @@ stock_agent/
 │   │   ├── technical.py            # RSI, MACD, Bollinger, SMA, ATR indicators
 │   │   └── risk.py                 # Pre-trade risk checks
 │   ├── skills/                     # Deep Agent skill definitions
-│   │   ├── trading-loop/SKILL.md   # Unified loop: research → analyze → decide (Steps 0-8)
-│   │   ├── reflection/SKILL.md     # Standalone EOD reflection + daily recap
-│   │   ├── weekly-review/SKILL.md  # Sunday full review + stage management
+│   │   ├── factor-loop/SKILL.md    # Factor-based: score_universe → signals → execute (6 steps)
+│   │   ├── trading-loop/SKILL.md   # Legacy: subjective research → analyze → decide (Steps 0-8)
+│   │   ├── reflection/SKILL.md     # EOD reflection + factor performance evaluation
+│   │   ├── weekly-review/SKILL.md  # Sunday: factor weight optimization + performance review
 │   │   ├── database-guide/SKILL.md # Schema reference for query_database
 │   │   ├── research/SKILL.md       # (legacy — replaced by trading-loop)
 │   │   ├── analysis/SKILL.md       # (legacy — replaced by trading-loop)
@@ -52,6 +53,7 @@ stock_agent/
 │   └── scripts/
 │       ├── seed_strategy.py        # One-time seed for founding strategy
 │       ├── seed_stage.py           # Seed agent_stage to "explore"
+│       ├── seed_factor_weights.py  # Seed factor_weights for factor-based system
 │       ├── create_crons.py         # Create/update LangGraph cron jobs
 │       └── migrate_memory.py       # One-time migration to structured memory
 ├── web/                            # Next.js frontend
@@ -80,21 +82,22 @@ The autonomous loop runs via **LangGraph Platform crons**:
 ### Weekdays (Mon-Fri) — 3 runs/day
 | Cron (UTC) | Toronto | Skill | Focus |
 |------------|---------|-------|-------|
-| `0 14 * * 1-5` | 10am | Trading Loop | Full pass: research → analyze → decide |
-| `0 17 * * 1-5` | 1pm | Trading Loop | Full pass (builds on morning's work) |
-| `0 20 * * 1-5` | 4pm | Reflection | EOD review, calibration, daily recap |
+| `0 14 * * 1-5` | 10am | Factor Loop | Score universe → signals → execute |
+| `0 17 * * 1-5` | 1pm | Factor Loop | Re-score (uses 4hr cache), check for earnings reactions |
+| `0 20 * * 1-5` | 4pm | Reflection | EOD review, factor performance evaluation, daily recap |
 
 ### Weekends — 1 run/day
 | Cron (UTC) | Toronto | Skill | Focus |
 |------------|---------|-------|-------|
-| `0 15 * * 6` | Sat 11am | Trading Loop (weekend mode) | 3-5 deep dives, no execution |
-| `0 15 * * 0` | Sun 11am | Weekly Review | Performance, strategy, stage management |
+| `0 15 * * 6` | Sat 11am | Factor Loop (weekend mode) | Full 50-stock ranking, no execution |
+| `0 15 * * 0` | Sun 11am | Weekly Review | Factor weight optimization, performance review |
 
-### Explore/Exploit Lifecycle
-Agent tracks maturity via `agent_stage` memory (`explore` → `balanced` → `exploit`):
-- **Explore**: Screen aggressively, 2+ deep dives/run, build watchlist to 15+, trade at 0.8+ confidence
-- **Balanced**: Maintain research cadence, check price targets actively, trade at 0.6+ confidence
-- **Exploit**: Focus on position management, research only for new catalysts or replacements
+### Factor-Based System (replaces Explore/Exploit lifecycle)
+The factor-based system has no lifecycle stages. Every run scores the full universe systematically:
+- `score_universe()` ranks ~150 stocks on momentum, quality, value factors
+- `enrich_eps_revisions()` adds EPS revision signal for top candidates
+- `generate_factor_rankings()` produces BUY/SELL/HOLD signals deterministically
+- Anti-churn: SELL only below rank 100 or falling EPS revisions; min 5-day hold period
 
 Managed via `agent/scripts/create_crons.py`. **Note**: UTC-based, needs manual adjustment for DST changes (EDT/EST)
 
@@ -105,24 +108,26 @@ Memory uses typed schemas stored in `agent_memory` with key prefixes:
 | Key Pattern | Tool | Schema |
 |-------------|------|--------|
 | `market_regime` | `update_market_regime()` | `{vix, breadth_pct, rotation_signal, regime_label, confidence, as_of}` |
-| `stock:{SYMBOL}` | `update_stock_analysis()` | `{symbol, thesis, target_entry, target_exit, confidence, bull_case, bear_case, fundamentals_score, status, target_set_date, regime_when_set, last_analyzed}` |
+| `stock:{SYMBOL}` | `update_stock_analysis()` | `{symbol, thesis, target_entry, target_exit, confidence, composite_score, momentum_score, quality_score, value_score, eps_revision_score, status, target_set_date, regime_when_set, last_analyzed}` |
 | `decision:{SYMBOL}:{YYYY-MM-DD}` | `record_decision()` | `{symbol, action, reasoning, confidence, price_at_decision, executed, decided_at}` |
+| `factor_rankings` | `write_agent_memory()` | `{top_10: [...], factor_weights, scored_at, universe_size, vix_at_scoring}` |
+| `factor_weights` | `write_agent_memory()` | `{momentum: 0.35, quality: 0.30, value: 0.20, eps_revision: 0.15, adjusted_at, reason}` |
 | `earnings_reaction:{SYMBOL}` | `write_agent_memory()` | `{quarter, actual_eps, estimated_eps, surprise_pct, guidance, estimate_revision, thesis_impact, action_taken, date}` |
-| `strategy`, `agent_stage`, `risk_appetite` | `write_agent_memory()` | Freeform (unchanged) |
+| `strategy`, `risk_appetite` | `write_agent_memory()` | Freeform (unchanged) |
 
-`load_agent_context()` reads structured keys categorically and falls back to legacy format gracefully.
+`load_agent_context()` reads structured keys categorically (including factor_rankings and factor_weights) and falls back to legacy format gracefully.
 
-## Conviction-Based Order Logic
+## Composite-Based Order Logic
 
-Order aggressiveness matches conviction level (Step 7 of trading-loop skill):
+Order aggressiveness is derived from the factor composite score (0-100), passed via `composite_score` parameter to `place_order()`:
 
-| Confidence | Order Type | Rationale |
-|-----------|------------|-----------|
-| 0.85+ | Market order or limit within 0.5% | Get the fill. Missing the trade > paying 2% more. |
-| 0.70-0.85 | Limit 1-2% below current | Want a small pullback. Okay to miss. |
-| 0.60-0.70 | Limit at target_entry | Only buy if it comes to you. |
+| Composite Score | Order Type | Rationale |
+|----------------|------------|-----------|
+| 80+ | Market order | High-factor-score stock. Get the fill. |
+| 70-80 | Limit 1% below current | Moderate signal. Want a small pullback. |
+| 60-70 | Limit 3% below current | Weaker signal. Only buy if it comes to you. |
 
-**Key principle**: Sector rotation is a soft signal, not a hard gate. Don't block high-conviction trades solely because of rotation.
+**Key principle**: Factor scores drive order type, not subjective conviction. Sector rotation is a soft signal, not a hard gate.
 
 ## Deployment
 
@@ -187,32 +192,26 @@ When you ship a meaningful change (new tool, UI restructure, new skill, behavior
 - Use today's date and a short title
 - List 3-5 bullet points summarizing what changed
 
-## Strategic Direction: Where the Edge Actually Is
+## Strategic Direction: Factor-Based System (Implemented March 2026)
 
-**Key insight (March 2026):** The current trading loop produces professional-looking analysis but may not generate alpha. Monet's "deep dives" are paraphrasing public data through an LLM trained on the same analyst reports the market already priced in. The explore → balanced → exploit lifecycle simulates human limitations instead of leveraging AI strengths.
+**Key insight:** The old trading loop produced professional-looking analysis but didn't generate alpha. Monet's "deep dives" were paraphrasing public data through an LLM trained on the same analyst reports the market already priced in.
 
-**Where AI actually has an edge over retail investors:**
-- **Breadth**: Screen the entire S&P 500/400 in one pass, not 6 stocks on a watchlist
-- **Speed**: React to earnings/events in minutes, not days
-- **Discipline**: No FOMO, no panic selling, no emotional attachment to positions
-- **Consistency**: Execute the same rules every time without drift
+**What changed (v0.5+):**
+- `score_universe()` scores ~150 stocks on momentum, quality, value factors deterministically
+- `enrich_eps_revisions()` adds EPS revision signal from Finnhub
+- `generate_factor_rankings()` produces BUY/SELL/HOLD signals — no LLM reasoning
+- Composite score replaces subjective confidence (0-100, not 0.0-1.0 vibes)
+- Explore/balanced/exploit lifecycle removed — every run is systematic
+- Old trading-loop skill preserved for comparison during transition
 
-**Where AI does NOT have an edge:**
-- Fundamental analysis (the market already prices in everything yfinance returns)
-- "Forming a thesis" (this is just paraphrasing public data)
-- Predicting the future (LLMs are not oracles)
-
-**The LLM adds real value in exactly two places:**
-1. **Interpreting earnings qualitatively** — "revenue beat but guidance was soft because of a one-time export restriction" → don't sell, this is temporary
+**Where the LLM adds value:**
+1. **Interpreting earnings qualitatively** (Step 3.5) — "revenue beat but guidance was soft because of a one-time export restriction" → don't sell
 2. **Risk sensing** — "VIX is spiking because of geopolitical event, not fundamentals" → don't panic sell
 
-**Future direction (not yet implemented):**
-- Move toward factor-based screening (EPS revision momentum, price momentum, quality, value) across the full universe
-- Replace subjective "confidence scoring" with quantitative factor composites
-- Keep the LLM for earnings interpretation and risk context, not for analysis theater
-- Journal becomes a trade log with metrics, not multi-paragraph essays
-
-**Tradeoff acknowledged**: The current Monet is more fun to watch. The systematic approach is more likely to make money but is boring. Evolution should be incremental — improve signal quality without losing observability.
+**Migration path:**
+- Factor-loop and trading-loop coexist — run one cron on each for comparison
+- After 1 week of parallel runs, evaluate signal quality
+- Full cutover when factor system demonstrates better signal quality
 
 ## Project Files
 

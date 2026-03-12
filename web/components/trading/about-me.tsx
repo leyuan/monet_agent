@@ -17,25 +17,25 @@ const MEMORY_KEYS = [
   "strategy",
   "risk_appetite",
   "market_outlook",
-  "agent_stage",
-  "weekly_priorities",
+  "factor_weights",
+  "factor_rankings",
 ];
 
 const SKILLS = [
-  "Market Research",
-  "Technical Analysis",
-  "Fundamental Analysis",
-  "Earnings Tracking",
+  "Factor-Based Scoring",
+  "Universe Screening (900 stocks)",
+  "Momentum Factor",
+  "Quality Factor",
+  "Value Factor",
+  "EPS Revision Tracking",
+  "Earnings Interpretation",
+  "Market Breadth",
   "Sector Rotation",
-  "Stock Screening",
-  "Peer Comparison",
-  "Price Target Setting",
   "Risk Management",
   "Position Sizing",
-  "DCA Strategy",
+  "Bracket Orders",
+  "Anti-Churn Controls",
   "Portfolio Rebalancing",
-  "Company Profiling",
-  "Market Breadth",
 ];
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -43,76 +43,70 @@ function buildBio(memories: Record<string, any>, watchlist: WatchlistRow[]): str
   const strategy = memories.strategy;
   const risk = memories.risk_appetite;
   const outlook = memories.market_outlook;
-  const rawStage = memories.agent_stage;
-  const stage = typeof rawStage === "string" ? rawStage : rawStage?.stage ?? null;
-  const priorities = memories.weekly_priorities;
+  const factorWeights = memories.factor_weights;
+  const factorRankings = memories.factor_rankings;
 
   const paragraphs: string[] = [];
 
-  // Paragraph 1: Identity & what I do
-  const themes = strategy?.core_themes;
-  const themeStr = Array.isArray(themes) && themes.length > 0
-    ? themes.slice(0, 3).map((t: string) => t.split("(")[0].trim().toLowerCase()).join(", ")
-    : "quality growth stocks with strong fundamentals";
+  // Paragraph 1: Identity & approach
   const approach = strategy?.summary
     ? strategy.summary
-    : "I focus on finding quality companies with strong fundamentals and favorable technicals, aiming to beat the S&P 500 consistently through disciplined risk management.";
+    : "I score the S&P 500 and S&P 400 universe on four quantitative factors — momentum, quality, value, and EPS revisions — to systematically identify the best risk-adjusted opportunities.";
   paragraphs.push(
-    `My name is **Monet**. I'm an autonomous AI investor specializing in ${themeStr}. ${approach}`
+    `My name is **Monet**. I'm a systematic, factor-based AI investor. ${approach} My edge is **breadth** (scoring ~900 stocks every run), **speed** (reacting to earnings within hours), and **discipline** (never overriding the system with gut feel).`
   );
 
-  // Paragraph 2: Philosophy & risk
+  // Paragraph 2: Factor weights & risk
   const riskLevel = risk?.level ?? "moderate";
   const riskSummary = risk?.summary ?? "";
-  const holdPeriod = strategy?.target_hold_period ?? "6-12 months";
-  const maxPos = strategy?.max_positions ?? "5-8";
-  const discipline = strategy?.entry_discipline ?? "";
-  paragraphs.push(
-    `My risk appetite is **${riskLevel}**. ${riskSummary ? riskSummary + " " : ""}` +
-    `I hold positions for ${holdPeriod}, running ${maxPos} positions max.` +
-    (discipline ? ` ${discipline}` : "")
-  );
+  const maxPos = strategy?.max_positions ?? "8";
+  if (factorWeights) {
+    const mom = factorWeights.momentum ?? 0.35;
+    const qual = factorWeights.quality ?? 0.30;
+    const val = factorWeights.value ?? 0.20;
+    const eps = factorWeights.eps_revision ?? 0.15;
+    paragraphs.push(
+      `My factor weights: **Momentum ${Math.round(mom * 100)}%**, **Quality ${Math.round(qual * 100)}%**, **Value ${Math.round(val * 100)}%**, **EPS Revision ${Math.round(eps * 100)}%**. ` +
+      `Risk appetite is **${riskLevel}**. ${riskSummary ? riskSummary + " " : ""}` +
+      `I run up to ${maxPos} positions with a 20% cash buffer.`
+    );
+  } else {
+    paragraphs.push(
+      `My risk appetite is **${riskLevel}**. ${riskSummary ? riskSummary + " " : ""}` +
+      `I run up to ${maxPos} positions with a 20% cash buffer.`
+    );
+  }
 
-  // Paragraph 3: Current market read & stage
+  // Paragraph 3: Current market read
   if (outlook) {
     const regime = outlook.regime ?? "uncertain";
     const vix = outlook.vix ? `VIX at ${outlook.vix}` : "";
     const interp = outlook.interpretation ?? "";
-    const stageLabel = stage === "explore"
-      ? "I'm currently in my **explore** phase — screening aggressively, building my watchlist, and rarely trading."
-      : stage === "balanced"
-        ? "I'm in my **balanced** phase — actively refining targets and trading when setups align."
-        : stage === "exploit"
-          ? "I'm in my **exploit** phase — focused on managing positions and harvesting returns."
-          : "";
-
     paragraphs.push(
-      `Right now, my read on the market is **${regime}**${vix ? ` (${vix})` : ""}. ${interp}` +
-      (stageLabel ? ` ${stageLabel}` : "")
+      `Right now, my read on the market is **${regime}**${vix ? ` (${vix})` : ""}. ${interp}`
     );
   }
 
-  // Paragraph 4: What I'm watching & priorities
+  // Paragraph 4: Top factor rankings + watchlist
   const watchSymbols = watchlist.map((w) => `**${w.symbol}**`);
-  const priList = priorities?.priorities;
-  if (watchSymbols.length > 0 || priList) {
-    let p4 = "";
+  const topRankings = factorRankings?.top_10 ?? factorRankings?.rankings;
+  if (Array.isArray(topRankings) && topRankings.length > 0) {
+    const top5 = topRankings.slice(0, 5).map(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (r: any) => `**${r.symbol}** (${Math.round(r.composite_score)})`
+    );
+    let p4 = `Top ranked by composite score: ${top5.join(", ")}.`;
     if (watchSymbols.length > 0) {
-      p4 += `I'm currently watching ${watchSymbols.join(", ")}. `;
+      p4 += ` Currently watching ${watchSymbols.join(", ")}.`;
     }
-    if (Array.isArray(priList) && priList.length > 0) {
-      p4 += `My priorities this week: ${priList.slice(0, 3).map((p: unknown) => {
-        if (typeof p === "string") return p;
-        if (p && typeof p === "object" && "focus" in p) return (p as { focus: string }).focus;
-        return String(p);
-      }).join("; ")}.`;
-    } else if (watchlist.length > 0) {
-      const nearest = watchlist.find((w) => w.target_entry);
-      if (nearest) {
-        p4 += `Nearest entry target: ${nearest.symbol} at $${nearest.target_entry}.`;
-      }
+    paragraphs.push(p4);
+  } else if (watchSymbols.length > 0) {
+    let p4 = `I'm currently watching ${watchSymbols.join(", ")}. `;
+    const nearest = watchlist.find((w) => w.target_entry);
+    if (nearest) {
+      p4 += `Nearest entry target: ${nearest.symbol} at $${nearest.target_entry}.`;
     }
-    if (p4) paragraphs.push(p4);
+    paragraphs.push(p4);
   }
 
   return paragraphs.join("\n\n");
