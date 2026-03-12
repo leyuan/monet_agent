@@ -18,6 +18,8 @@ const TOOL_LABELS: Record<string, string> = {
   fundamental_analysis: "Running fundamentals",
   technical_analysis: "Running technicals",
   earnings_calendar: "Checking earnings",
+  eps_estimates: "Fetching EPS estimates",
+  get_performance_comparison: "Comparing performance",
   read_file: "Reading file",
 };
 

@@ -11,6 +11,17 @@ interface ReleaseEntry {
 
 const RELEASES: ReleaseEntry[] = [
   {
+    version: "v0.6",
+    date: "Mar 12",
+    title: "Gen-UI for Chat",
+    items: [
+      "Rich tool UI cards: stock quotes, portfolio, sectors, technicals, fundamentals",
+      "EPS estimates with revision signal badges",
+      "Peer comparison tables, market breadth bars",
+      "Performance comparison with alpha badge",
+    ],
+  },
+  {
     version: "v0.5",
     date: "Mar 11",
     title: "Dashboard Redesign & EPS Estimates",
