@@ -11,6 +11,40 @@ interface ReleaseEntry {
 
 const RELEASES: ReleaseEntry[] = [
   {
+    version: "v0.9",
+    date: "Mar 12",
+    title: "Dashboard & About Me for Investors",
+    items: [
+      "About Me page rewritten with full system description (EN/CN toggle)",
+      "Dashboard: Factor System card replaces legacy Lifecycle card",
+      "Factor weights bar, top 5 rankings, universe size on dashboard",
+      "Chat flashing fix: removed gen-ui cards causing rapid re-renders",
+    ],
+  },
+  {
+    version: "v0.8",
+    date: "Mar 12",
+    title: "EPS Revision Enhancement",
+    items: [
+      "Combined two signals: estimate direction (70%) + analyst breadth (30%)",
+      "31 analysts revising up now scores higher than 3 analysts by same amount",
+      "Switched from Finnhub (premium-only) to yfinance eps_trend (free)",
+      "Added analyst up/down counts to enrichment output",
+    ],
+  },
+  {
+    version: "v0.7",
+    date: "Mar 12",
+    title: "Factor-Based Trading System",
+    items: [
+      "New scoring pipeline: score_universe() ranks ~900 stocks on 4 factors",
+      "Factors: Momentum (35%), Quality (30%), Value (20%), EPS Revision (15%)",
+      "Composite-based order types: >80 market, 70-80 limit 1%, 60-70 limit 3%",
+      "Anti-churn rules: min 5-day hold, sell only below rank 100",
+      "All crons switched from subjective analysis to systematic factor loop",
+    ],
+  },
+  {
     version: "v0.6",
     date: "Mar 12",
     title: "Gen-UI for Chat",
