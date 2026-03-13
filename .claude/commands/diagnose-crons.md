@@ -1,6 +1,6 @@
 # Diagnose Cron Jobs
 
-Run a comprehensive diagnostic of the Monet Agent's autonomous cron job health. Check for errors, execution gaps, and propose improvements.
+Run a comprehensive diagnostic of the Monet Agent's autonomous cron job health. Check for errors, execution gaps, verify recent fixes, and propose improvements.
 
 ## Step 1: Check Cron Configuration
 
@@ -33,150 +33,184 @@ Verify:
 - All `next_run_date` values should be in the future
 - Flag any missing schedules
 
-## Step 2: Check Recent Execution History
+## Step 2: Check Today's Execution
 
-Query journal entries to see what actually ran:
+Query today's journal entries and trades:
+
+```sql
+-- Today's journal entries
+SELECT entry_type, title, metadata->>'run_source' as run_source,
+  created_at AT TIME ZONE 'America/New_York' as et_time,
+  LENGTH(content) as content_len, symbols
+FROM agent_journal
+WHERE created_at >= CURRENT_DATE
+ORDER BY created_at;
+
+-- Today's trades
+SELECT symbol, side, quantity, status, confidence, created_at
+FROM trades WHERE created_at >= CURRENT_DATE ORDER BY created_at;
+
+-- Today's memory updates
+SELECT key, updated_at AT TIME ZONE 'America/New_York' as et_time
+FROM agent_memory WHERE updated_at >= CURRENT_DATE ORDER BY updated_at DESC;
+```
+
+Expected weekday pattern:
+- **10am ET**: factor_loop → market_scan journal, factor_rankings memory updated
+- **1pm ET**: factor_loop → market_scan journal (uses 4hr cache)
+- **4pm ET**: eod_reflection → reflection journal, equity_snapshot recorded
+
+Expected weekend:
+- **Saturday 11am**: factor_loop_weekend → market_scan with top 50, catalyst discovery, upcoming_catalysts memory
+- **Sunday 11am**: weekly_review → reflection with factor weight assessment
+
+## Step 3: Check Run Quality
+
+For the latest factor loop run, verify:
+
+```sql
+-- Latest factor loop journal
+SELECT content FROM agent_journal
+WHERE metadata->>'run_source' = 'factor_loop'
+ORDER BY created_at DESC LIMIT 1;
+```
+
+Check:
+- [ ] Factor rankings table present with top 10 (Rank, Symbol, Sector, Composite, M, Q, V, E)
+- [ ] BUY/SELL/HOLD signals generated
+- [ ] Earnings guard applied (stocks with earnings within 5 days blocked)
+- [ ] Catalyst guard applied if `upcoming_catalysts` memory exists
+- [ ] **No sector filtering** — signals NOT blocked by "AI infrastructure mandate" or sector preference
+- [ ] Journal is concise (< 3000 chars, no essays)
+- [ ] `run_source` is "factor_loop" in metadata
+
+## Step 4: Check Recent Execution History (14 days)
 
 ```sql
 SELECT
   DATE(created_at AT TIME ZONE 'America/New_York') as run_date,
+  EXTRACT(DOW FROM created_at AT TIME ZONE 'America/New_York') as dow,
   COUNT(*) as entries,
-  ARRAY_AGG(DISTINCT entry_type) as types,
+  ARRAY_AGG(DISTINCT metadata->>'run_source') as sources,
   MIN(created_at AT TIME ZONE 'America/New_York') as first_entry,
   MAX(created_at AT TIME ZONE 'America/New_York') as last_entry
 FROM agent_journal
 WHERE created_at >= NOW() - INTERVAL '14 days'
-GROUP BY DATE(created_at AT TIME ZONE 'America/New_York')
+GROUP BY DATE(created_at AT TIME ZONE 'America/New_York'),
+         EXTRACT(DOW FROM created_at AT TIME ZONE 'America/New_York')
 ORDER BY run_date DESC;
 ```
 
-Use `mcp__supabase__execute_sql` to run this query.
+For each day, verify against expected schedule:
+- **Weekdays (DOW 1-5)**: Should have 3 runs (factor_loop × 2 + eod_reflection)
+- **Saturday (DOW 6)**: 1 run (factor_loop_weekend)
+- **Sunday (DOW 0)**: 1 run (weekly_review)
 
-For each day, verify against the expected schedule:
-- **Weekdays**: Should have 3 runs producing entries (research, analysis, trade/reflection)
-- **Saturday**: Should have 1 run (weekend research + analysis)
-- **Sunday**: Should have 1 run (weekly review / reflection)
+Flag gaps — days where expected runs are missing.
 
-Flag any **gaps** — days where expected runs are missing.
-
-## Step 3: Check for Errors
-
-Look for signs of failures:
+## Step 5: Check for Errors
 
 ```sql
-SELECT
-  entry_type,
-  title,
-  LEFT(content, 200) as content_preview,
+SELECT entry_type, title, LEFT(content, 300) as preview,
   created_at AT TIME ZONE 'America/New_York' as et_time
 FROM agent_journal
 WHERE created_at >= NOW() - INTERVAL '7 days'
-  AND (
-    content ILIKE '%error%'
-    OR content ILIKE '%failed%'
-    OR content ILIKE '%exception%'
-    OR content ILIKE '%could not%'
-    OR content ILIKE '%unable to%'
-  )
+  AND (content ILIKE '%error%' OR content ILIKE '%failed%'
+    OR content ILIKE '%exception%' OR content ILIKE '%unable to%'
+    OR content ILIKE '%blocked%' OR content ILIKE '%outside mandate%')
 ORDER BY created_at DESC;
 ```
 
-Also check LangSmith traces for the `monet` project if errors are suspected but not journaled (the agent may have crashed before writing a journal entry).
+Flag:
+- Tool errors (search, quote, scoring failures)
+- Sector bias language ("outside mandate", "outside AI infrastructure") — this was fixed Mar 13, should not appear after
+- SPY data errors ($0 close) — fixed Mar 13
+- Earnings calendar failures
 
-## Step 4: Check Phase Completeness
-
-For the last 7 days, verify each cron produced the expected outputs:
-
-```sql
-SELECT
-  DATE(created_at AT TIME ZONE 'America/New_York') as run_date,
-  entry_type,
-  COUNT(*) as count
-FROM agent_journal
-WHERE created_at >= NOW() - INTERVAL '7 days'
-GROUP BY DATE(created_at AT TIME ZONE 'America/New_York'), entry_type
-ORDER BY run_date DESC, entry_type;
-```
-
-Expected daily pattern (weekdays):
-- Morning (10am): 1+ research entries
-- Midday (1pm): 1+ research + 1+ analysis entries
-- EOD (4pm): 1+ trade entries + 1+ reflection entries
-
-Flag if any phase is consistently missing (e.g. always research but never reflection).
-
-## Step 5: Check Memory Freshness
+## Step 6: Check Memory Freshness
 
 ```sql
-SELECT
-  key,
+SELECT key,
   updated_at AT TIME ZONE 'America/New_York' as last_updated,
-  EXTRACT(EPOCH FROM (NOW() - updated_at)) / 3600 as hours_ago
+  ROUND(EXTRACT(EPOCH FROM (NOW() - updated_at)) / 3600) as hours_ago
 FROM agent_memory
-WHERE key IN ('market_outlook', 'strategy', 'risk_appetite', 'agent_stage', 'weekly_priorities', 'upcoming_earnings')
+WHERE key IN ('market_regime', 'strategy', 'risk_appetite', 'factor_rankings',
+  'factor_weights', 'upcoming_earnings', 'upcoming_catalysts')
 ORDER BY updated_at DESC;
 ```
 
 Flag:
-- `market_outlook` not updated in 24h on a weekday → research phase isn't writing
-- `weekly_priorities` not updated in 8 days → Sunday review isn't running
-- `upcoming_earnings` missing → earnings_calendar tool never ran or failed to persist
-- `agent_stage` missing → stage tracking not initialized
+- `market_regime` not updated in 24h on a weekday → factor loop isn't writing regime
+- `factor_rankings` not updated in 24h on a weekday → scoring pipeline broken
+- `upcoming_catalysts` missing or > 8 days old → weekend catalyst discovery not running
+- `factor_weights` > 14 days old → weekly review not adjusting weights
+- `strategy` should show `approach: "factor_based_systematic"` (not legacy AI infrastructure)
 
-## Step 6: Check Tool Usage Patterns
-
+Quick check on strategy:
 ```sql
-SELECT
-  entry_type,
-  title,
-  symbols,
-  created_at AT TIME ZONE 'America/New_York' as et_time
-FROM agent_journal
-WHERE created_at >= NOW() - INTERVAL '7 days'
-ORDER BY created_at DESC
-LIMIT 20;
+SELECT value->>'approach' as approach, value->>'universe' as universe
+FROM agent_memory WHERE key = 'strategy';
 ```
 
-Look for:
-- Is the agent using `read_all_agent_memory()` at the start? (should mention loading context)
-- Is it reacting to earnings? (look for earnings-related analysis entries)
-- Is it setting price targets? (analysis entries should mention targets)
-- Is it doing DCA analysis? (trade entries should assess fundamentals before selling)
+## Step 7: Check Equity Snapshots
 
-## Step 7: Verification Checklist
+```sql
+SELECT snapshot_date, portfolio_equity, spy_close,
+  portfolio_cumulative_return, spy_cumulative_return, alpha, deployed_pct
+FROM equity_snapshots ORDER BY snapshot_date DESC LIMIT 7;
+```
 
-Read `POSTDEPLOY_CHECK.md` at the project root. This file tracks pending feature verifications with specific trigger conditions.
+Flag:
+- `spy_close = 0` → yfinance fallback failed (bug)
+- `spy_cumulative_return = -100` → bad SPY data poisoned cumulative calc
+- Missing dates on weekdays → EOD reflection didn't call `record_daily_snapshot()`
+- `portfolio_equity = 0` → Alpaca API failure
 
-For each item in the **Pending Verification** section:
-1. Check if the trigger condition has been met (e.g. "MU reported earnings" or "first trading loop after deploy")
-2. If yes, verify each checkbox by querying the database for evidence
-3. Mark items as checked `[x]` if verified, or flag failures
-4. Move fully verified sections to the **Verified** section with today's date
+## Step 8: Verification Checklist
+
+Read `POSTDEPLOY_CHECK.md` at the project root.
+
+For each item in **Pending Verification**:
+1. Check if the trigger condition has been met
+2. If yes, verify each checkbox by querying the database
+3. Mark items as `[x]` if verified, or flag failures
+4. Move fully verified sections to **Verified** with today's date
 5. If a check fails, note what went wrong and propose a fix
 
-Key queries for verification:
+Key verification queries:
 ```sql
--- Check for earnings_reaction memories
-SELECT key, value FROM agent_memory WHERE key LIKE 'earnings_reaction:%';
-
--- Check if eps_estimates was used (look for it in journal content)
+-- Check sector bias fix
 SELECT title, content FROM agent_journal
-WHERE content ILIKE '%eps_estimates%' OR content ILIKE '%estimate revision%'
+WHERE metadata->>'run_source' = 'factor_loop'
+  AND created_at > '2026-03-13 21:00:00+00'
+  AND (content ILIKE '%outside mandate%' OR content ILIKE '%outside AI%')
 ORDER BY created_at DESC LIMIT 5;
 
--- Check recap format
-SELECT entry_type, title, LEFT(content, 300) FROM agent_journal
-WHERE entry_type = 'reflection' AND created_at >= CURRENT_DATE
-ORDER BY created_at DESC LIMIT 1;
+-- Check catalyst memory
+SELECT key, updated_at, value->>'fetched_at' as fetched
+FROM agent_memory WHERE key = 'upcoming_catalysts';
+
+-- Check SPY snapshots after fix
+SELECT snapshot_date, spy_close, spy_cumulative_return
+FROM equity_snapshots WHERE snapshot_date > '2026-03-13'
+ORDER BY snapshot_date;
+
+-- Check earnings reaction memories
+SELECT key, value FROM agent_memory WHERE key LIKE 'earnings_reaction:%';
+
+-- Check factor scores on stock analyses
+SELECT key, value->>'composite_score' as composite,
+  value->>'momentum_score' as momentum, value->>'quality_score' as quality,
+  value->>'value_score' as value_score, value->>'eps_revision_score' as eps_rev
+FROM agent_memory WHERE key LIKE 'stock:%'
+ORDER BY (value->>'composite_score')::float DESC NULLS LAST;
 ```
 
-Update the file with your findings — check off verified items, move completed sections, add new pending items if you discover untested behaviors.
+Update the checklist file with findings.
 
-## Step 8: Generate Report
+## Step 9: Generate Report
 
-**Include a Checklist Summary section in the report:**
-
-Summarize findings in this structure:
+Summarize findings:
 
 ### Health Score: X/10
 
@@ -185,32 +219,32 @@ Summarize findings in this structure:
 - [ ] Next run dates are correct
 - [ ] No stale/orphaned crons
 
+### Today's Runs
+- List each run with time, type, and key actions taken
+- Note any trades placed and their status
+- Flag any blocked signals and whether the block was valid
+
 ### Execution Gaps (last 14 days)
 - List any dates where expected runs didn't happen
-- Identify if gaps are systematic (e.g. weekends always missing) vs random
+- Identify if gaps are systematic vs random
 
-### Errors Found
-- List any errors from journal content
-- Note any days with 0 entries (possible crash before journaling)
-
-### Phase Completeness
-- Which phases are running consistently?
-- Which phases are missing or under-represented?
+### Errors & Bias
+- Tool/data errors found
+- Any remaining sector bias language (should be zero after Mar 13 fix)
+- SPY data quality
 
 ### Memory Health
 - Which memories are fresh vs stale?
 - Any critical memories missing?
 
-### Verification Checklist
-- How many pending items were verifiable this run?
-- How many passed vs failed?
-- Any new items to add based on today's findings?
-- List items moved to Verified
+### Verification Checklist Summary
+- Items verified today
+- Items that failed
+- Items still pending (trigger not yet met)
 
 ### Proposals
 Based on findings, propose:
-1. **Missing tools** — e.g. "Add a health-check tool that validates the agent's own execution"
-2. **Skill improvements** — e.g. "Research phase should handle Finnhub rate limits more gracefully"
-3. **Schedule adjustments** — e.g. "Add a pre-market check at 9:30am for position monitoring"
-4. **Error recovery** — e.g. "Add retry logic for failed journal writes"
-5. **Monitoring** — e.g. "Store run_metadata in journal to track which cron triggered each entry"
+1. **Fixes needed** — any bugs or data issues to address
+2. **Skill improvements** — factor loop, reflection, or weekly review changes
+3. **Schedule adjustments** — timing or frequency changes
+4. **Monitoring gaps** — things that should be tracked but aren't

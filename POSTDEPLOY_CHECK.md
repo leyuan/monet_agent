@@ -63,6 +63,27 @@ Ongoing checklist of features/behaviors to verify after deployment. When reviewi
 - [ ] Factor weight adjustment considered (±0.05 max per week)
 - [ ] If adjusted, `factor_weights` memory updated with reason
 
+### Sector-Agnostic Fix (next weekday 10am/1pm factor loop after Mar 13)
+**Trigger**: First factor-loop trading run after sector bias fix deployed (Mar 13 evening).
+- [ ] NEM, AA, or other non-tech stocks in top rankings are NOT blocked by "AI infrastructure mandate"
+- [ ] Strategy memory shows `approach: "factor_based_systematic"` and sector-agnostic `core_themes`
+- [ ] BUY signals generated purely on composite score threshold, regardless of sector
+- [ ] Journal entry does NOT contain "outside mandate" or "outside AI infrastructure" language
+
+### Catalyst Discovery (next Saturday run — Mar 14)
+**Trigger**: First Saturday factor-loop weekend variant after catalyst feature deployed.
+- [ ] `discover_catalysts()` tool is called during weekend variant
+- [ ] `upcoming_catalysts` memory key written with events array
+- [ ] Each event has: symbol, date, category, significance, trading_implication
+- [ ] Catalyst events appear as purple dots in calendar UI
+- [ ] Weekend journal entry mentions catalyst discoveries
+
+### SPY Close Fix (next 4pm EOD reflection)
+**Trigger**: First 4pm reflection after yfinance SPY fix deployed (Mar 13).
+- [ ] `equity_snapshots` for today has non-zero `spy_close`
+- [ ] `spy_cumulative_return` is reasonable (not -100%)
+- [ ] Benchmark card in UI shows correct SPY return
+
 ### Post-Earnings Protocol (MU — March 19 morning run)
 **Trigger**: MU reports earnings March 18 after market close. First 10am run on March 19 tests the new protocol.
 - [ ] Agent treats MU as high-priority in Step 3.5 (earnings reaction)
