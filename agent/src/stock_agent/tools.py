@@ -1741,11 +1741,20 @@ def record_daily_snapshot() -> dict:
     equity = float(portfolio.get("equity", 0))
     cash = float(portfolio.get("cash", 0))
 
-    spy_quote = get_quote("SPY")
-    # get_quote returns bid/ask, use midpoint as proxy for close
-    bid = float(spy_quote.get("bid_price", 0))
-    ask = float(spy_quote.get("ask_price", 0))
-    spy_close = round((bid + ask) / 2, 2) if bid and ask else float(spy_quote.get("last_price", 0))
+    # Use yfinance for SPY close — Alpaca quotes return 0 bid/ask at market close
+    try:
+        spy_ticker = yf.Ticker("SPY")
+        spy_hist = spy_ticker.history(period="1d")
+        spy_close = round(float(spy_hist["Close"].iloc[-1]), 2) if not spy_hist.empty else 0.0
+    except Exception:
+        spy_close = 0.0
+
+    # Fallback: try Alpaca quote if yfinance failed
+    if spy_close == 0.0:
+        spy_quote = get_quote("SPY")
+        bid = float(spy_quote.get("bid_price", 0))
+        ask = float(spy_quote.get("ask_price", 0))
+        spy_close = round((bid + ask) / 2, 2) if bid and ask else 0.0
 
     today = datetime.now().strftime("%Y-%m-%d")
     snapshot = db_record_equity_snapshot(today, equity, cash, spy_close)
