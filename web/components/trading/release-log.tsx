@@ -11,6 +11,18 @@ interface ReleaseEntry {
 
 const RELEASES: ReleaseEntry[] = [
   {
+    version: "v1.0",
+    date: "Mar 13",
+    title: "Catalyst & Event Tracking",
+    items: [
+      "New discover_catalysts() tool: searches for conferences, product launches, investor days, regulatory events",
+      "Catalyst guard (Step 3.25): blocks BUY signals near high-risk events, flags positions for trim",
+      "Weekend catalyst discovery: Saturday runs scan 30 days ahead and write structured memory",
+      "Calendar UI: purple dots for catalyst events with detail panel on click",
+      "Weekly review now prunes past catalysts and evaluates guard effectiveness",
+    ],
+  },
+  {
     version: "v0.9",
     date: "Mar 12",
     title: "Dashboard & About Me for Investors",

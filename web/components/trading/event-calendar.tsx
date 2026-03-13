@@ -4,7 +4,7 @@ import { useEffect, useState, useMemo } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 
-type EventType = "earnings" | "activity" | "cron";
+type EventType = "earnings" | "activity" | "cron" | "catalyst";
 
 interface CalendarEvent {
   symbol: string;
@@ -90,7 +90,27 @@ export function EventCalendar() {
         }
       }
 
-      // 2. Fetch recent journal entries as activity markers
+      // 2. Fetch upcoming catalysts from agent_memory
+      const { data: catalystMem } = await supabase
+        .from("agent_memory")
+        .select("value")
+        .eq("key", "upcoming_catalysts")
+        .maybeSingle();
+
+      if (catalystMem?.value?.events) {
+        for (const e of catalystMem.value.events) {
+          if (e.date && e.symbol) {
+            allEvents.push({
+              symbol: e.symbol,
+              date: e.date,
+              type: "catalyst",
+              label: `${e.symbol}: ${e.title ?? "Catalyst"}${e.significance ? ` (${e.significance})` : ""}`,
+            });
+          }
+        }
+      }
+
+      // 3. Fetch recent journal entries as activity markers
       const { data: journals } = await supabase
         .from("agent_journal")
         .select("entry_type, title, symbols, created_at")
@@ -152,6 +172,7 @@ export function EventCalendar() {
   // Events for selected date
   const selectedEvents = selectedDate ? eventsByDate[selectedDate] ?? [] : [];
   const earningsForSelected = selectedEvents.filter((e) => e.type === "earnings");
+  const catalystForSelected = selectedEvents.filter((e) => e.type === "catalyst");
   const cronForSelected = selectedEvents.filter((e) => e.type === "cron");
   const activityForSelected = selectedEvents.filter((e) => e.type === "activity");
 
@@ -197,6 +218,7 @@ export function EventCalendar() {
 
           const dateEvents = eventsByDate[cell.dateStr];
           const hasEarnings = dateEvents?.some((e) => e.type === "earnings");
+          const hasCatalyst = dateEvents?.some((e) => e.type === "catalyst");
           const hasActivity = dateEvents?.some((e) => e.type === "activity");
           const hasCron = dateEvents?.some((e) => e.type === "cron");
           const isToday = cell.dateStr === todayStr;
@@ -214,10 +236,13 @@ export function EventCalendar() {
             >
               {cell.day}
               {/* Event dots */}
-              {(hasEarnings || hasActivity || hasCron) && (
+              {(hasEarnings || hasCatalyst || hasActivity || hasCron) && (
                 <div className="absolute bottom-0.5 flex gap-0.5">
                   {hasEarnings && (
                     <span className="size-1 rounded-full bg-orange-500" />
+                  )}
+                  {hasCatalyst && (
+                    <span className="size-1 rounded-full bg-purple-500" />
                   )}
                   {hasCron && !hasActivity && (
                     <span className="size-1 rounded-full bg-emerald-500" />
@@ -236,6 +261,9 @@ export function EventCalendar() {
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2 text-[9px] text-muted-foreground">
         <span className="flex items-center gap-1">
           <span className="size-1.5 rounded-full bg-orange-500" /> Earnings
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="size-1.5 rounded-full bg-purple-500" /> Catalyst
         </span>
         <span className="flex items-center gap-1">
           <span className="size-1.5 rounded-full bg-emerald-500" /> Scheduled
@@ -263,6 +291,16 @@ export function EventCalendar() {
               <span className="size-1.5 rounded-full bg-orange-500 shrink-0" />
               <span className="font-mono font-semibold">{e.symbol}</span>
               <span className="truncate">{e.label?.replace(`${e.symbol} `, "")}</span>
+            </div>
+          ))}
+          {catalystForSelected.map((e, i) => (
+            <div
+              key={`cat-${i}`}
+              className="flex items-center gap-1.5 rounded px-1.5 py-1 bg-purple-500/10 text-purple-700 dark:text-purple-300"
+            >
+              <span className="size-1.5 rounded-full bg-purple-500 shrink-0" />
+              <span className="font-mono font-semibold">{e.symbol}</span>
+              <span className="truncate">{e.label?.replace(`${e.symbol}: `, "")}</span>
             </div>
           ))}
           {cronForSelected.map((e, i) => (

@@ -2412,6 +2412,70 @@ def check_watchlist_alerts(threshold_pct: float = 2.0) -> dict:
     }
 
 
+def discover_catalysts(
+    symbols: list[str] | None = None,
+    days_ahead: int = 30,
+) -> dict:
+    """Discover upcoming corporate catalysts (conferences, product launches, investor days, regulatory events).
+
+    Searches the web for upcoming high-impact events for each symbol. Returns raw
+    search results — the LLM interprets significance and writes structured memory.
+
+    Args:
+        symbols: Tickers to check. If None, uses watchlist + current positions.
+        days_ahead: How many days to look ahead (default 30).
+
+    Returns:
+        Raw search results grouped by symbol for LLM interpretation.
+    """
+    # Auto-populate from watchlist + positions if no symbols provided
+    if not symbols:
+        symbols = set()
+        try:
+            watchlist = get_watchlist()
+            symbols.update(item["symbol"] for item in watchlist)
+        except Exception:
+            pass
+        try:
+            portfolio = get_portfolio()
+            symbols.update(pos["symbol"] for pos in portfolio.get("positions", []))
+        except Exception:
+            pass
+        symbols = list(symbols) if symbols else []
+
+    if not symbols:
+        return {"error": "No symbols to check — watchlist and portfolio are empty"}
+
+    # Cap at 15 symbols to avoid excessive API calls
+    symbols = symbols[:15]
+
+    current_year = datetime.now().year
+    client = TavilyClient(api_key=os.environ.get("TAVILY_API_KEY"))
+    results = {}
+
+    for sym in symbols:
+        try:
+            response = client.search(
+                query=f"{sym} upcoming conference product launch investor day {current_year}",
+                topic="news",
+                max_results=3,
+            )
+            hits = response.get("results", [])
+            if hits:
+                results[sym] = [
+                    {"title": h.get("title", ""), "url": h.get("url", ""), "content": h.get("content", "")}
+                    for h in hits
+                ]
+        except Exception:
+            logger.warning("Failed to search catalysts for %s", sym)
+
+    return {
+        "results": results,
+        "symbols_checked": symbols,
+        "searched_at": datetime.now().isoformat(),
+    }
+
+
 # ============================================================
 # Tool collections for each mode
 # ============================================================
@@ -2453,6 +2517,8 @@ AUTONOMOUS_TOOLS = [
     score_universe,
     enrich_eps_revisions,
     generate_factor_rankings,
+    # Catalyst discovery
+    discover_catalysts,
 ]
 
 def submit_user_insight(

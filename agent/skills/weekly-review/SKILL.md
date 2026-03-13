@@ -96,6 +96,11 @@ ORDER BY created_at DESC
 - Review risk settings: are they appropriate for current regime?
 - Update `strategy` memory with any observations
 
+**Catalyst Review:**
+- Check `upcoming_catalysts` memory — remove past events, flag stale ones
+- Were any catalysts this week correctly anticipated? Did the guard help?
+- Update catalyst list if needed via `write_agent_memory("upcoming_catalysts", ...)`
+
 ### 7. Write Weekly Review Journal
 Create a comprehensive journal entry of type "reflection" covering:
 - Weekly alpha vs SPY

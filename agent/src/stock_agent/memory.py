@@ -79,6 +79,20 @@ def _load_agent_context_inner() -> str:
             f"Value: {fw.get('value', 0.20)} | EPS Revision: {fw.get('eps_revision', 0.15)}"
         )
 
+    # --- Upcoming Catalysts ---
+    catalyst_mem = mem_by_key.get("upcoming_catalysts")
+    if catalyst_mem and isinstance(catalyst_mem.get("value"), dict):
+        cv = catalyst_mem["value"]
+        high_events = [e for e in cv.get("events", []) if e.get("significance") == "high"]
+        if high_events:
+            lines = [f"Fetched: {cv.get('fetched_at', '?')}"]
+            for e in high_events[:10]:
+                lines.append(
+                    f"  {e.get('date', '?')} {e.get('symbol', '?')}: "
+                    f"{e.get('title', '?')} ({e.get('trading_implication', '?')})"
+                )
+            sections.append("## Upcoming Catalysts\n" + "\n".join(lines))
+
     # --- Stock Analyses (structured: stock:* keys) ---
     stock_mems = sorted(
         [m for m in all_mem if m["key"].startswith("stock:")],

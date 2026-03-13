@@ -67,6 +67,20 @@ For each BUY signal from Step 2:
 - Run `earnings_calendar(symbols=[buy signal symbols])`
 - **Remove any BUY signal where earnings are within 5 days** — binary risk
 
+### Step 3.25: Catalyst Awareness
+
+Check `upcoming_catalysts` from memory (loaded in Step 0).
+
+For each BUY signal:
+- If a **high-significance** catalyst is within 3 days with `trading_implication: "avoid_entry"`:
+  remove the BUY signal (same logic as earnings guard)
+- If `trading_implication: "catalyst_buy"`: keep signal, note as positive catalyst
+
+For HOLD positions:
+- If `trading_implication: "reduce_before"` within 2 days: flag for potential trim in Step 4
+
+This is lightweight — just reads memory already loaded in Step 0. No new tool calls.
+
 ### Step 3.5: Earnings Reaction (the speed edge)
 
 This is where the LLM adds real value. For stocks that reported earnings since the last run:
@@ -175,6 +189,16 @@ On Saturday:
 - Write a comprehensive journal entry with the full top 50 ranking
 - Compare this week's rankings vs last week's (from `factor_rankings` memory)
 - Note which stocks entered/exited the top 20
+
+### Weekend Catalyst Discovery
+After scoring, discover upcoming catalysts for the next 30 days:
+1. Run `discover_catalysts(days_ahead=30)`
+2. Review raw search results — for each genuine catalyst:
+   - Assess `significance` (high/medium/low) based on historical impact of similar events
+   - Set `trading_implication`: hold_through / avoid_entry / catalyst_buy / reduce_before
+   - Write one-line `impact_thesis`
+3. Write results: `write_agent_memory("upcoming_catalysts", { events: [...], fetched_at: ..., symbols_checked: [...] })`
+4. Note discoveries in the weekend journal entry
 
 ---
 
