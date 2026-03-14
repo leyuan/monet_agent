@@ -6,41 +6,11 @@ Ongoing checklist of features/behaviors to verify after deployment. When reviewi
 
 ## Pending Verification
 
-### Factor-Based Scoring Pipeline (first factor-loop run)
-**Trigger**: First cron run using `/skills/factor-loop/SKILL.md`.
-- [ ] `score_universe()` returns ~150 scored stocks in < 2 minutes
-- [ ] All factor scores are 0-100 (momentum, quality, value, composite)
-- [ ] `eps_revision_score` defaults to 50 before enrichment
-- [ ] 4-hour cache works — second call in same window returns `cached: true`
-- [ ] `enrich_eps_revisions()` processes 20 symbols without rate limit errors
-- [ ] Finnhub calls stay under 60/min limit
-- [ ] EPS revision scores: rising → 70-85, flat → 50, falling → 15-30
-- [ ] `generate_factor_rankings()` produces correct BUY/SELL/HOLD signals
-- [ ] BUY signals: top 20 by composite, not held, composite > 70
-- [ ] SELL signals: held stocks below rank 100 OR eps_revision < 30
-- [ ] HOLD signals: held stocks still in top 50
-- [ ] Existing positions are evaluated (not auto-dumped)
-
-### Composite-Based Order Types (first factor-loop trade)
-**Trigger**: First BUY signal executed via factor-loop.
-- [ ] `composite_score` parameter passed to `place_order()`
-- [ ] Score > 80 → market order placed
-- [ ] Score 70-80 → limit order 1% below current price
-- [ ] Score 60-70 → limit order 3% below current price
-- [ ] `confidence` auto-derived as `composite_score / 100`
-
 ### Anti-Churn Rules (accumulates over time)
 **Trigger**: After factor-loop has been running for 1+ week.
 - [ ] No positions sold within 5 trading days of purchase (unless stop-loss)
 - [ ] SELL only triggers below rank 100 or falling EPS revisions
 - [ ] Rankings are stable day-to-day (3m+12m momentum windows smooth out noise)
-
-### Factor Rankings Memory (first factor-loop run)
-**Trigger**: First completed factor-loop run.
-- [ ] `factor_rankings` memory key written with top_10, factor_weights, scored_at
-- [ ] `update_stock_analysis()` includes composite_score, momentum_score, quality_score, value_score, eps_revision_score
-- [ ] `record_decision()` uses `composite_score / 100` as confidence
-- [ ] Journal entry type is "market_scan" with `run_source="factor_loop"`
 
 ### Updated About Me Page (after deploy)
 **Trigger**: After Vercel redeploy with factor-based about-me component.
@@ -63,20 +33,31 @@ Ongoing checklist of features/behaviors to verify after deployment. When reviewi
 - [ ] Factor weight adjustment considered (±0.05 max per week)
 - [ ] If adjusted, `factor_weights` memory updated with reason
 
-### Sector-Agnostic Fix (next weekday 10am/1pm factor loop after Mar 13)
-**Trigger**: First factor-loop trading run after sector bias fix deployed (Mar 13 evening).
+### Sector-Agnostic Fix (Monday Mar 16 10am factor loop)
+**Trigger**: First weekday factor-loop trading run after full strategy memory cleanup (Mar 14).
+- [x] Strategy memory shows `approach: "factor_based_systematic"` and sector-agnostic `core_themes`
+- [x] Legacy fields removed: `validated`, `confidence_scoring` formula, tech-focused `pre_trade_checklist`
 - [ ] NEM, AA, or other non-tech stocks in top rankings are NOT blocked by "AI infrastructure mandate"
-- [ ] Strategy memory shows `approach: "factor_based_systematic"` and sector-agnostic `core_themes`
 - [ ] BUY signals generated purely on composite score threshold, regardless of sector
 - [ ] Journal entry does NOT contain "outside mandate" or "outside AI infrastructure" language
 
-### Catalyst Discovery (next Saturday run — Mar 14)
-**Trigger**: First Saturday factor-loop weekend variant after catalyst feature deployed.
-- [ ] `discover_catalysts()` tool is called during weekend variant
-- [ ] `upcoming_catalysts` memory key written with events array
-- [ ] Each event has: symbol, date, category, significance, trading_implication
-- [ ] Catalyst events appear as purple dots in calendar UI
+**Note**: Mar 14 Saturday run still showed sector bias despite skill update — root cause was
+legacy fields in strategy memory (`validated` said "AI infrastructure focus", `pre_trade_checklist`
+said "Is tech outperforming?"). Full strategy memory replaced Mar 14.
+
+### Catalyst Discovery (next Saturday run — Mar 21)
+**Trigger**: First Saturday factor-loop weekend variant where agent actually calls `discover_catalysts()`.
+- [x] `upcoming_catalysts` memory key written with events array (manually seeded Mar 14)
+- [x] Each event has: symbol, date, category, significance, trading_implication
+- [ ] Catalyst events appear as purple dots in calendar UI (verify after Vercel deploy)
+- [ ] `discover_catalysts()` tool called autonomously by agent during weekend variant
+- [ ] Agent interprets raw results and sets correct significance/trading_implication
 - [ ] Weekend journal entry mentions catalyst discoveries
+
+**Note**: Mar 14 Saturday run did NOT call discover_catalysts() — agent skipped the step.
+Memory was manually seeded with GTC (Mar 16), AA J.P. Morgan (Mar 17), TSMC Symposium (Apr 15).
+Tool query improved: uses company names + topic="general" for better search quality.
+Verify agent calls it autonomously on Mar 21.
 
 ### SPY Close Fix (next 4pm EOD reflection)
 **Trigger**: First 4pm reflection after yfinance SPY fix deployed (Mar 13).
@@ -118,16 +99,39 @@ Ongoing checklist of features/behaviors to verify after deployment. When reviewi
 - [ ] `deployed_pct` column populated in equity_snapshots
 - [ ] Alpha is reasonable (not -22% from cash drag)
 
-### Factor vs Legacy Comparison (1 week after parallel run)
-**Trigger**: After running both factor-loop and trading-loop for 1 week.
-- [ ] Compare journal entries: factor-loop has concise factor scores, not narrative essays
-- [ ] Compare decision quality: do high-composite picks outperform subjective picks?
-- [ ] Compare churn: factor system should have fewer trades due to anti-churn rules
-- [ ] Decision: full cutover or continue parallel
+### Catalyst Guard in Factor Loop (Monday Mar 16 or later)
+**Trigger**: First weekday factor loop with `upcoming_catalysts` memory populated.
+- [ ] Step 3.25 reads catalyst memory and logs any guard actions
+- [ ] GTC (Mar 16-19) recognized as `hold_through` for held semi positions
+- [ ] No false blocks — `hold_through` events don't prevent BUY signals
 
 ---
 
 ## Verified (completed)
+
+### Factor-Based Scoring Pipeline (March 12-14)
+- [x] `score_universe()` returns ~150 scored stocks (903 universe)
+- [x] All factor scores are 0-100
+- [x] `enrich_eps_revisions()` processes 20 symbols
+- [x] EPS revision scores: rising → 70-90, flat → 50-62, falling → 22-38
+- [x] `generate_factor_rankings()` produces BUY/SELL/HOLD signals
+- [x] BUY signals: top 20 by composite, composite > 70
+- [x] HOLD signals: held stocks in top 50
+- [x] Existing positions evaluated (not auto-dumped)
+
+### Composite-Based Order Types (March 12-13)
+- [x] `composite_score` parameter passed to `place_order()`
+- [x] WDC (88.5) → market order, STX (78.7) → limit order, LRCX (78.0) → limit order
+- [x] `confidence` auto-derived as `composite_score / 100`
+
+### Factor Rankings Memory (March 12)
+- [x] `factor_rankings` memory key written with top_10, factor_weights, scored_at
+- [x] Journal entry type is "market_scan" with `run_source="factor_loop"`
+
+### Reflection with Factor Evaluation (March 12-13)
+- [x] Reflection evaluates factor performance (high-composite outperforming)
+- [x] Factor weight assessment included
+- [x] No reference to stage management
 
 ### Bracket Orders & Position Protection (March 11)
 - [x] TSM position has bracket order (stop $335, target $410)
