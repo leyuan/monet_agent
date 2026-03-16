@@ -1940,6 +1940,26 @@ def _percentile_rank(series: pd.Series) -> pd.Series:
     return series.rank(pct=True, na_option="keep") * 100
 
 
+_DEFAULT_FACTOR_WEIGHTS = {"momentum": 0.35, "quality": 0.30, "value": 0.20, "eps_revision": 0.15}
+
+
+def _load_factor_weights() -> dict:
+    """Load factor weights from agent_memory, falling back to defaults."""
+    try:
+        result = read_memory("factor_weights")
+        if result and result.get("value"):
+            stored = result["value"]
+            return {
+                "momentum": float(stored.get("momentum", _DEFAULT_FACTOR_WEIGHTS["momentum"])),
+                "quality": float(stored.get("quality", _DEFAULT_FACTOR_WEIGHTS["quality"])),
+                "value": float(stored.get("value", _DEFAULT_FACTOR_WEIGHTS["value"])),
+                "eps_revision": float(stored.get("eps_revision", _DEFAULT_FACTOR_WEIGHTS["eps_revision"])),
+            }
+    except Exception:
+        logger.warning("Failed to load factor_weights from memory, using defaults")
+    return _DEFAULT_FACTOR_WEIGHTS.copy()
+
+
 def score_universe(top_n: int = 30) -> dict:
     """Score the S&P 500 + S&P 400 universe on momentum, quality, and value factors.
 
@@ -1952,7 +1972,7 @@ def score_universe(top_n: int = 30) -> dict:
     3. Pre-filter top ~150 by momentum, fetch fundamentals
     4. Compute quality factor (margin + ROE - leverage)
     5. Compute value factor (inverse forward P/E within sector)
-    6. Composite = 0.35*momentum + 0.30*quality + 0.20*value + 0.15*eps_revision (eps starts at 50)
+    6. Composite = weighted sum using factor_weights from memory (eps starts at 50)
     7. Return top_n ranked stocks
 
     Uses a 4-hour cache to avoid redundant downloads within the same trading day.
@@ -2075,8 +2095,8 @@ def score_universe(top_n: int = 30) -> dict:
             if s in value_rank.index and not pd.isna(value_rank[s]):
                 value_scores[s] = round(float(value_rank[s]), 1)
 
-    # Assemble final scores
-    factor_weights = {"momentum": 0.35, "quality": 0.30, "value": 0.20, "eps_revision": 0.15}
+    # Assemble final scores — use stored weights from weekly review
+    factor_weights = _load_factor_weights()
 
     for r in results:
         sym = r["symbol"]
@@ -2278,8 +2298,8 @@ def generate_factor_rankings(
     # Build EPS revision lookup
     eps_lookup = {e["symbol"]: e["eps_revision_score"] for e in eps_enrichment}
 
-    # Factor weights (matching score_universe defaults)
-    weights = {"momentum": 0.35, "quality": 0.30, "value": 0.20, "eps_revision": 0.15}
+    # Factor weights — read from memory (updated by weekly review)
+    weights = _load_factor_weights()
 
     # Update composite scores with actual EPS revision data
     for stock in universe_scores:
@@ -2495,6 +2515,104 @@ def discover_catalysts(
     }
 
 
+def get_earnings_results(symbol: str) -> dict:
+    """Get structured earnings data: 4-quarter surprise history + forward estimate revisions.
+
+    Combines earnings_calendar() surprise data with eps_estimates() revision signal.
+    Use this to bootstrap or update an earnings profile for a company.
+
+    Args:
+        symbol: Ticker symbol (e.g. "MU").
+
+    Returns:
+        Dict with surprise_history, summary stats, forward_estimates, and flags.
+    """
+    # 1. Get historical surprises from earnings_calendar
+    cal_data = earnings_calendar(symbols=[symbol])
+    surprises = [s for s in cal_data.get("recent_surprises", []) if s.get("symbol") == symbol]
+
+    # Sort by period descending
+    surprises.sort(key=lambda x: x.get("period", ""), reverse=True)
+
+    # Build surprise history
+    surprise_history = []
+    for s in surprises:
+        surprise_history.append({
+            "period": s.get("period"),
+            "actual": s.get("actual_eps"),
+            "estimate": s.get("estimated_eps"),
+            "surprise_pct": s.get("surprise_pct", 0),
+        })
+
+    # 2. Compute summary stats
+    quarters_available = len(surprise_history)
+    if quarters_available > 0:
+        avg_surprise_pct = round(
+            sum(s["surprise_pct"] for s in surprise_history) / quarters_available, 1
+        )
+        # Beat streak: consecutive positive surprises from most recent
+        beat_streak = 0
+        for s in surprise_history:
+            if s["surprise_pct"] > 0:
+                beat_streak += 1
+            else:
+                break
+        beats = sum(1 for s in surprise_history if s["surprise_pct"] > 0)
+        beat_rate = round(beats / quarters_available, 2)
+    else:
+        avg_surprise_pct = 0
+        beat_streak = 0
+        beat_rate = 0
+
+    # 3. Check if most recent report is fresh (within last 10 days)
+    reported_recently = False
+    latest_quarter = None
+    if surprise_history:
+        latest = surprise_history[0]
+        latest_quarter = {
+            "period": latest["period"],
+            "actual_eps": latest["actual"],
+            "estimated_eps": latest["estimate"],
+            "surprise_pct": latest["surprise_pct"],
+        }
+        try:
+            period_date = datetime.strptime(latest["period"], "%Y-%m-%d")
+            if (datetime.now() - period_date).days <= 10:
+                reported_recently = True
+        except (ValueError, TypeError):
+            pass
+
+    # 4. Get forward estimates
+    est_data = eps_estimates(symbol, freq="quarterly")
+    forward_estimates = {}
+    if est_data.get("estimates"):
+        next_q = est_data["estimates"][0]
+        forward_estimates = {
+            "next_quarter_eps": next_q.get("eps_avg"),
+            "revision_signal": est_data.get("revision_signal", "unknown"),
+        }
+
+    # 5. Determine if qualitative review is needed
+    needs_qualitative_review = False
+    if latest_quarter and abs(latest_quarter.get("surprise_pct", 0)) > 5:
+        needs_qualitative_review = True
+
+    return {
+        "symbol": symbol,
+        "reported_recently": reported_recently,
+        "latest_quarter": latest_quarter,
+        "surprise_history": surprise_history,
+        "summary": {
+            "quarters_available": quarters_available,
+            "avg_surprise_pct": avg_surprise_pct,
+            "beat_streak": beat_streak,
+            "beat_rate": beat_rate,
+        },
+        "forward_estimates": forward_estimates,
+        "needs_qualitative_review": needs_qualitative_review,
+    }
+
+
 # ============================================================
 # Tool collections for each mode
 # ============================================================
@@ -2538,6 +2656,8 @@ AUTONOMOUS_TOOLS = [
     generate_factor_rankings,
     # Catalyst discovery
     discover_catalysts,
+    # Earnings intelligence
+    get_earnings_results,
 ]
 
 def submit_user_insight(

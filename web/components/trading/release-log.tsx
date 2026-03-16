@@ -11,6 +11,31 @@ interface ReleaseEntry {
 
 const RELEASES: ReleaseEntry[] = [
   {
+    version: "v1.2",
+    date: "Mar 15",
+    title: "Stock Detail Pages & Dynamic Factor Weights",
+    items: [
+      "New /earnings/[symbol] detail page: company profile, leadership, thesis, factor scores, earnings history, decisions, journal",
+      "Company data from Yahoo Finance: description, sector, key metrics (P/E, margins, revenue growth), leadership with Wikipedia photos",
+      "Earnings history backfilled from Yahoo Finance when Supabase has no quarterly data",
+      "Stock logos via Parqet, executive portraits via Wikipedia API with initials fallback",
+      "Factor weights now read from memory — weekly review adjustments actually change scoring logic",
+      "Dashboard earnings card: stock symbols are clickable links to detail pages",
+    ],
+  },
+  {
+    version: "v1.1",
+    date: "Mar 15",
+    title: "Earnings Intelligence System",
+    items: [
+      "Persistent earnings profiles (earnings_profile:SYMBOL) that accumulate across quarters",
+      "New get_earnings_results() tool: 4-quarter surprise history + forward estimate revisions in one call",
+      "Auto-bootstrap: first encounter builds profile from Finnhub history with pattern detection",
+      "Qualitative highlights per quarter from internet search (guidance shifts, strategic announcements)",
+      "Earnings profiles loaded into agent context for passive decision support",
+    ],
+  },
+  {
     version: "v1.0",
     date: "Mar 13",
     title: "Catalyst & Event Tracking",
