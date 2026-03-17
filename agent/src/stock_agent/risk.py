@@ -83,23 +83,73 @@ def check_risk(symbol: str, side: str, quantity: float, limit_price: float | Non
             "reason": f"Insufficient cash. Need {trade_value:.2f}, have {cash:.2f} (not using margin)",
         }
 
-    # Check 5: Earnings proximity warning
+    # Check 5: Earnings proximity — HARD BLOCK for buys within 2 days
+    # Uses Finnhub first, then yfinance as fallback (Finnhub misses dates).
     earnings_warning = None
-    try:
-        from stock_agent.finnhub_client import get_finnhub
-        fh = get_finnhub()
+    earnings_date_str = None
+    days_until_earnings = None
+
+    if side == "buy":
         today = datetime.now()
-        cal = fh.earnings_calendar(
-            _from=today.strftime("%Y-%m-%d"),
-            to=(today + timedelta(days=7)).strftime("%Y-%m-%d"),
-            symbol=symbol,
-        )
-        upcoming = cal.get("earningsCalendar", [])
-        if upcoming and side == "buy":
-            days_until = (datetime.strptime(upcoming[0]["date"], "%Y-%m-%d") - today).days
-            earnings_warning = f"{symbol} reports earnings in {days_until} day(s) on {upcoming[0]['date']}. Ensure confidence >= 0.85 for pre-earnings entries."
-    except Exception:
-        pass
+
+        # Try Finnhub
+        try:
+            from stock_agent.finnhub_client import get_finnhub
+            fh = get_finnhub()
+            cal = fh.earnings_calendar(
+                _from=today.strftime("%Y-%m-%d"),
+                to=(today + timedelta(days=7)).strftime("%Y-%m-%d"),
+                symbol=symbol,
+            )
+            upcoming = cal.get("earningsCalendar", [])
+            if upcoming:
+                earnings_date_str = upcoming[0]["date"]
+                days_until_earnings = (datetime.strptime(earnings_date_str, "%Y-%m-%d") - today).days
+        except Exception:
+            pass
+
+        # Fallback: yfinance if Finnhub returned nothing
+        if days_until_earnings is None:
+            try:
+                import yfinance as yf_lib
+                ticker = yf_lib.Ticker(symbol)
+                cal_data = ticker.calendar
+                if cal_data is not None:
+                    raw_date = None
+                    if isinstance(cal_data, dict):
+                        raw = cal_data.get("Earnings Date", [])
+                        raw_date = raw[0] if raw else None
+                    elif hasattr(cal_data, "loc"):
+                        try:
+                            raw = cal_data.loc["Earnings Date"]
+                            raw_date = raw.iloc[0] if hasattr(raw, "iloc") else raw
+                        except (KeyError, IndexError):
+                            pass
+
+                    if raw_date is not None:
+                        from pandas import Timestamp
+                        if isinstance(raw_date, Timestamp):
+                            raw_date = raw_date.to_pydatetime()
+                        if isinstance(raw_date, datetime):
+                            days_until_earnings = (raw_date - today).days
+                            earnings_date_str = raw_date.strftime("%Y-%m-%d")
+                            logger.info("yfinance fallback found earnings for %s on %s (risk check)", symbol, earnings_date_str)
+            except Exception:
+                pass
+
+        if days_until_earnings is not None and earnings_date_str:
+            if days_until_earnings <= 2:
+                return {
+                    "approved": False,
+                    "reason": f"EARNINGS GUARD: {symbol} reports earnings on {earnings_date_str} ({days_until_earnings} day(s) away). Buying within 2 days of earnings is blocked — binary risk.",
+                    "metrics": {
+                        "trade_value": trade_value,
+                        "earnings_date": earnings_date_str,
+                        "days_until_earnings": days_until_earnings,
+                    },
+                }
+            elif days_until_earnings <= 5:
+                earnings_warning = f"{symbol} reports earnings in {days_until_earnings} day(s) on {earnings_date_str}. Pre-earnings caution advised."
 
     return {
         "approved": True,

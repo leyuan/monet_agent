@@ -684,8 +684,11 @@ def earnings_calendar(symbols: list[str] | None = None, days_ahead: int = 30) ->
     upcoming = []
     recent_surprises = []
 
+    # Track which symbols Finnhub returned dates for so we can fallback
+    symbols_with_dates: set[str] = set()
+
     for sym in symbols:
-        # Upcoming earnings
+        # Upcoming earnings — try Finnhub first
         try:
             cal = fh.earnings_calendar(
                 _from=today.strftime("%Y-%m-%d"),
@@ -702,6 +705,47 @@ def earnings_calendar(symbols: list[str] | None = None, days_ahead: int = 30) ->
                     "revenue_estimate": entry.get("revenueEstimate"),
                     "hour": entry.get("hour", "unknown"),
                 })
+                symbols_with_dates.add(sym)
+        except Exception:
+            pass
+
+    # Fallback: use yfinance for symbols Finnhub missed
+    for sym in symbols:
+        if sym in symbols_with_dates:
+            continue
+        try:
+            ticker = yf.Ticker(sym)
+            cal_dates = ticker.calendar
+            if cal_dates is not None and not (hasattr(cal_dates, "empty") and cal_dates.empty):
+                # yfinance returns calendar as a dict or DataFrame depending on version
+                earnings_date = None
+                if isinstance(cal_dates, dict):
+                    raw = cal_dates.get("Earnings Date", [])
+                    earnings_date = raw[0] if raw else None
+                elif hasattr(cal_dates, "loc"):
+                    try:
+                        raw = cal_dates.loc["Earnings Date"]
+                        earnings_date = raw.iloc[0] if hasattr(raw, "iloc") else raw
+                    except (KeyError, IndexError):
+                        pass
+
+                if earnings_date is not None:
+                    from pandas import Timestamp
+                    if isinstance(earnings_date, Timestamp):
+                        earnings_date = earnings_date.to_pydatetime()
+                    if isinstance(earnings_date, datetime):
+                        days_until = (earnings_date - today).days
+                        if 0 <= days_until <= days_ahead:
+                            upcoming.append({
+                                "symbol": sym,
+                                "date": earnings_date.strftime("%Y-%m-%d"),
+                                "days_until": days_until,
+                                "eps_estimate": None,
+                                "revenue_estimate": None,
+                                "hour": "unknown",
+                            })
+                            symbols_with_dates.add(sym)
+                            logger.info("yfinance fallback found earnings for %s on %s", sym, earnings_date.strftime("%Y-%m-%d"))
         except Exception:
             pass
 
@@ -727,15 +771,35 @@ def earnings_calendar(symbols: list[str] | None = None, days_ahead: int = 30) ->
     # Flag earnings within 5 days
     imminent = [e for e in upcoming if e.get("days_until", 999) <= 5]
 
-    # Persist upcoming earnings to memory so the web UI calendar can display them
-    if upcoming:
-        try:
-            db_write_memory("upcoming_earnings", {
-                "events": upcoming,
-                "fetched_at": today.strftime("%Y-%m-%d %H:%M"),
-            })
-        except Exception:
-            logger.warning("Failed to persist upcoming_earnings to memory")
+    # Persist upcoming earnings to memory so the web UI calendar can display them.
+    # Merge with existing events (keyed by symbol) so that symbols not queried this
+    # run aren't dropped. Prune events whose date has already passed.
+    try:
+        existing_mem = read_memory("upcoming_earnings")
+        existing_events: list[dict] = []
+        if existing_mem and existing_mem.get("value"):
+            existing_events = existing_mem["value"].get("events", [])
+
+        # Build a map keyed by symbol — new results overwrite stale ones
+        today_str = today.strftime("%Y-%m-%d")
+        merged: dict[str, dict] = {}
+        for ev in existing_events:
+            sym_key = ev.get("symbol", "")
+            # Drop events whose date has passed
+            if ev.get("date", "") >= today_str and sym_key:
+                merged[sym_key] = ev
+        for ev in upcoming:
+            sym_key = ev.get("symbol", "")
+            if sym_key:
+                merged[sym_key] = ev
+
+        merged_list = sorted(merged.values(), key=lambda x: x.get("date", "9999"))
+        db_write_memory("upcoming_earnings", {
+            "events": merged_list,
+            "fetched_at": today.strftime("%Y-%m-%d %H:%M"),
+        })
+    except Exception:
+        logger.warning("Failed to persist upcoming_earnings to memory")
 
     return {
         "symbols_checked": symbols,

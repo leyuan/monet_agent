@@ -70,16 +70,18 @@ export function EventCalendar() {
       const supabase = createClient();
       const allEvents: CalendarEvent[] = [];
 
-      // 1. Fetch upcoming earnings from agent_memory (persisted by earnings_calendar tool)
+      // 1a. Fetch upcoming earnings from agent_memory (persisted by earnings_calendar tool)
       const { data: earningsMem } = await supabase
         .from("agent_memory")
         .select("value")
         .eq("key", "upcoming_earnings")
         .maybeSingle();
 
+      const earningsSymbolsSeen = new Set<string>();
       if (earningsMem?.value?.events) {
         for (const e of earningsMem.value.events) {
           if (e.date && e.symbol) {
+            earningsSymbolsSeen.add(e.symbol);
             allEvents.push({
               symbol: e.symbol,
               date: e.date,
@@ -87,6 +89,51 @@ export function EventCalendar() {
               label: `${e.symbol} earnings${e.hour === "bmo" ? " (pre-market)" : e.hour === "amc" ? " (after close)" : ""}`,
             });
           }
+        }
+      }
+
+      // 1b. Supplement with Yahoo Finance earnings dates for watchlist + portfolio
+      //     symbols not already covered by the Finnhub memory key.
+      const [{ data: watchlistRows }, { data: stockKeys }] = await Promise.all([
+        supabase.from("watchlist").select("symbol"),
+        supabase
+          .from("agent_memory")
+          .select("key")
+          .like("key", "stock:%"),
+      ]);
+
+      const trackedSymbols = new Set<string>();
+      for (const w of watchlistRows ?? []) trackedSymbols.add(w.symbol);
+      for (const m of stockKeys ?? []) {
+        const sym = m.key.replace("stock:", "");
+        if (sym && !sym.includes(":")) trackedSymbols.add(sym);
+      }
+
+      const missing = [...trackedSymbols].filter(
+        (s) => !earningsSymbolsSeen.has(s),
+      );
+
+      if (missing.length > 0) {
+        try {
+          const res = await fetch(
+            `/api/earnings-dates?symbols=${missing.join(",")}`,
+          );
+          if (res.ok) {
+            const { events: yahooEvents } = await res.json();
+            for (const e of yahooEvents ?? []) {
+              if (e.date && e.symbol && !earningsSymbolsSeen.has(e.symbol)) {
+                earningsSymbolsSeen.add(e.symbol);
+                allEvents.push({
+                  symbol: e.symbol,
+                  date: e.date,
+                  type: "earnings",
+                  label: `${e.symbol} earnings`,
+                });
+              }
+            }
+          }
+        } catch {
+          // Yahoo supplement is best-effort
         }
       }
 
