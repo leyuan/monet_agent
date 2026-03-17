@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { redirect } from "next/navigation";
+import { SetupChat } from "@/components/landing/setup-chat";
 
 export default async function LandingPage() {
   const supabase = await createClient();
@@ -26,39 +27,46 @@ export default async function LandingPage() {
             href="/signup"
             className="rounded-full bg-foreground text-background px-4 py-1.5 text-sm font-medium hover:opacity-90 transition-opacity"
           >
-            Get Started
+            Build Your Agent
           </Link>
         </div>
       </nav>
 
-      {/* Hero */}
-      <section className="max-w-3xl mx-auto px-6 pt-24 pb-20 text-center">
-        <p className="text-sm font-medium text-muted-foreground mb-4 tracking-wider uppercase">
-          AI-Native Quantitative Investing
-        </p>
-        <h1 className="text-4xl sm:text-5xl font-bold tracking-tight leading-[1.15]">
-          Your Private Quant
-          <br />
-          Research Team
-        </h1>
-        <p className="mt-6 text-lg text-muted-foreground max-w-xl mx-auto leading-relaxed">
-          Monet scores 900 stocks on four quantitative factors, executes with
-          systematic discipline, and helps you become a better investor — more
-          educated, more disciplined, more patient.
-        </p>
-        <div className="mt-10 flex items-center justify-center gap-4">
-          <Link
-            href="/signup"
-            className="rounded-full bg-foreground text-background px-6 py-2.5 text-sm font-medium hover:opacity-90 transition-opacity"
-          >
-            Start Investing
-          </Link>
-          <Link
-            href="/about"
-            className="rounded-full border px-6 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
-          >
-            Learn More
-          </Link>
+      {/* Hero — two-column */}
+      <section className="max-w-5xl mx-auto px-6 pt-16 pb-20">
+        <div className="grid md:grid-cols-2 gap-12 items-center">
+          <div>
+            <p className="text-sm font-medium text-muted-foreground mb-4 tracking-wider uppercase">
+              AI-Native Quantitative Investing
+            </p>
+            <h1 className="text-4xl sm:text-5xl font-bold tracking-tight leading-[1.15]">
+              Your Own AI
+              <br />
+              Quant Agent
+            </h1>
+            <p className="mt-6 text-lg text-muted-foreground leading-relaxed">
+              Tell OpenClaw what you care about. In 2 minutes, you&apos;ll have a
+              personalized quant agent scoring 900 stocks and trading with
+              systematic discipline.
+            </p>
+            <div className="mt-8 flex items-center gap-4">
+              <Link
+                href="/signup"
+                className="rounded-full bg-foreground text-background px-6 py-2.5 text-sm font-medium hover:opacity-90 transition-opacity"
+              >
+                Get Started — Free
+              </Link>
+              <Link
+                href="/about"
+                className="rounded-full border px-6 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:border-foreground/30 transition-colors"
+              >
+                Learn More
+              </Link>
+            </div>
+          </div>
+          <div className="flex justify-center">
+            <SetupChat />
+          </div>
         </div>
       </section>
 
@@ -67,29 +75,29 @@ export default async function LandingPage() {
         <div className="grid gap-6 sm:grid-cols-3">
           <div className="rounded-2xl border p-6 space-y-3">
             <div className="text-2xl">01</div>
-            <h3 className="font-semibold">Score the Universe</h3>
+            <h3 className="font-semibold">Talk to OpenClaw</h3>
             <p className="text-sm text-muted-foreground leading-relaxed">
-              Every trading day, Monet downloads data for ~900 stocks and ranks
-              them on momentum, quality, value, and EPS revisions in under 75
-              seconds.
+              Tell OpenClaw your sectors, risk tolerance, and experience level.
+              It configures everything — no forms, no dashboards, just a
+              conversation.
             </p>
           </div>
           <div className="rounded-2xl border p-6 space-y-3">
             <div className="text-2xl">02</div>
-            <h3 className="font-semibold">Analyst Intelligence</h3>
+            <h3 className="font-semibold">Get Your Own Agent</h3>
             <p className="text-sm text-muted-foreground leading-relaxed">
-              For the top 20 candidates, Monet checks how many analysts are
-              revising estimates up or down. Breadth confirms conviction —
-              31 analysts agree beats 3.
+              In under 2 minutes, you get a dedicated quant agent that scores
+              900 stocks on four factors, executes trades, and manages risk —
+              all personalized to you.
             </p>
           </div>
           <div className="rounded-2xl border p-6 space-y-3">
             <div className="text-2xl">03</div>
-            <h3 className="font-semibold">Execute with Discipline</h3>
+            <h3 className="font-semibold">Customize Anytime</h3>
             <p className="text-sm text-muted-foreground leading-relaxed">
-              Every position gets automatic stop-loss and take-profit brackets.
-              Anti-churn rules prevent emotional selling. The system can&apos;t
-              talk itself into a bad trade.
+              Chat with your agent to adjust strategy, shift sector focus, or
+              tune risk. It learns your preferences and improves its factor
+              weights weekly.
             </p>
           </div>
         </div>
@@ -98,17 +106,17 @@ export default async function LandingPage() {
       {/* Edge */}
       <section className="max-w-4xl mx-auto px-6 pb-20">
         <h2 className="text-2xl font-bold text-center mb-10">
-          Why AI Beats Emotional Investing
+          Why Your Own AI Agent Beats DIY Investing
         </h2>
         <div className="grid gap-4 sm:grid-cols-2">
           {[
             {
               label: "Breadth",
-              desc: "Score 900 stocks in one pass — not 5 stocks you heard about on social media.",
+              desc: "Your agent scores 900 stocks in one pass — not 5 stocks you heard about on social media.",
             },
             {
               label: "Speed",
-              desc: "React to earnings overnight, hours before analyst revisions update.",
+              desc: "It reacts to earnings overnight, hours before analyst revisions update.",
             },
             {
               label: "Discipline",
@@ -136,9 +144,13 @@ export default async function LandingPage() {
 
       {/* Factors */}
       <section className="max-w-3xl mx-auto px-6 pb-20">
-        <h2 className="text-2xl font-bold text-center mb-10">
+        <h2 className="text-2xl font-bold text-center mb-2">
           Four-Factor Composite Model
         </h2>
+        <p className="text-sm text-muted-foreground text-center mb-10">
+          Default starting weights — your agent adjusts these based on your
+          preferences and weekly performance reviews.
+        </p>
         <div className="space-y-3">
           {[
             { name: "Momentum", weight: 35, color: "bg-blue-500", desc: "Price trend strength" },
@@ -168,10 +180,9 @@ export default async function LandingPage() {
       {/* CTA */}
       <section className="max-w-3xl mx-auto px-6 pb-24 text-center">
         <div className="rounded-2xl border p-10 space-y-4">
-          <h2 className="text-2xl font-bold">Stop guessing. Start investing systematically.</h2>
+          <h2 className="text-2xl font-bold">Build your agent in 2 minutes.</h2>
           <p className="text-muted-foreground text-sm max-w-md mx-auto">
-            The median retail investor underperforms the S&P 500 by 3-5% annually.
-            Monet eliminates the emotional mistakes that cause it.
+            No code. No configuration. Just a conversation.
           </p>
           <Link
             href="/signup"
