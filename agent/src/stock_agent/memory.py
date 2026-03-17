@@ -1,5 +1,7 @@
 """Persistent memory interface for the agent's beliefs and state."""
 
+from datetime import datetime, timedelta
+
 from stock_agent.db import read_memory, write_memory, read_all_memory, read_journal
 
 
@@ -80,16 +82,33 @@ def _load_agent_context_inner() -> str:
         )
 
     # --- Upcoming Catalysts ---
+    # Include high-significance catalysts (any future), and medium within 7 days.
+    # Prune events that are more than 1 day in the past.
     catalyst_mem = mem_by_key.get("upcoming_catalysts")
     if catalyst_mem and isinstance(catalyst_mem.get("value"), dict):
         cv = catalyst_mem["value"]
-        high_events = [e for e in cv.get("events", []) if e.get("significance") == "high"]
-        if high_events:
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        yesterday_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        week_ahead_str = (datetime.now() + timedelta(days=7)).strftime("%Y-%m-%d")
+
+        relevant = []
+        for e in cv.get("events", []):
+            edate = e.get("date", "")
+            sig = e.get("significance", "low")
+            if edate < yesterday_str:
+                continue  # prune stale past events
+            if sig == "high" or (sig == "medium" and edate <= week_ahead_str):
+                relevant.append(e)
+
+        if relevant:
             lines = [f"Fetched: {cv.get('fetched_at', '?')}"]
-            for e in high_events[:10]:
+            for e in relevant[:10]:
+                tag = ""
+                if e.get("date", "") <= today_str:
+                    tag = " **[TODAY/ACTIVE]**"
                 lines.append(
                     f"  {e.get('date', '?')} {e.get('symbol', '?')}: "
-                    f"{e.get('title', '?')} ({e.get('trading_implication', '?')})"
+                    f"{e.get('title', '?')} ({e.get('trading_implication', '?')}){tag}"
                 )
             sections.append("## Upcoming Catalysts\n" + "\n".join(lines))
 

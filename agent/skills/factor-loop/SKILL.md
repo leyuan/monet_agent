@@ -69,19 +69,23 @@ For each BUY signal from Step 2:
 - Run `earnings_calendar(symbols=[buy signal symbols])`
 - **Remove any BUY signal where earnings are within 5 days** — binary risk
 
-### Step 3.25: Catalyst Awareness
+### Step 3.25: Catalyst Intelligence
 
-Check `upcoming_catalysts` from memory (loaded in Step 0).
+Check `upcoming_catalysts` from memory (loaded in Step 0). Identify any catalyst that is **happening today, happened since last run, or is within 3 days** and overlaps with held positions or BUY candidates.
 
-For each BUY signal:
-- If a **high-significance** catalyst is within 3 days with `trading_implication: "avoid_entry"`:
-  remove the BUY signal (same logic as earnings guard)
-- If `trading_implication: "catalyst_buy"`: keep signal, note as positive catalyst
+#### 3.25a: Research active catalysts
+For each relevant catalyst (max 2 per run):
+1. `internet_search("[symbol] [catalyst title] [date]")` — learn what actually happened or what's expected
+2. Summarize in 2-3 bullet points: key announcements, market reaction, implications for the sector
+3. Assess impact on **each held position** that the catalyst affects (not just the primary symbol — e.g., NVIDIA GTC affects all semiconductor holdings)
 
-For HOLD positions:
-- If `trading_implication: "reduce_before"` within 2 days: flag for potential trim in Step 4
+#### 3.25b: Apply to signals
+- If a catalyst with `trading_implication: "avoid_entry"` is within 3 days: remove the BUY signal
+- If `trading_implication: "catalyst_buy"`: keep signal, note catalyst as tailwind
+- If `trading_implication: "reduce_before"` within 2 days: flag HOLD for potential trim in Step 4
 
-This is lightweight — just reads memory already loaded in Step 0. No new tool calls.
+#### 3.25c: Discipline check
+**Catalysts do NOT override factor scores.** A great keynote doesn't turn a rank #50 stock into a buy. A disappointing conference doesn't force a sell on a rank #3 stock with strong factors. Catalysts provide **context for the journal** and may influence hold/trim decisions at the margin, but the composite score remains the primary signal. Note the catalyst impact in Step 5's journal entry — readers want to know you're aware of major events affecting the portfolio.
 
 ### Step 3.5: Earnings Reaction (the speed edge)
 
@@ -194,8 +198,9 @@ write_agent_memory("factor_rankings", {
 
 ### Write journal entry
 Type: "market_scan" or "trade"
-- **MAX 300 words** — this is a factor log, not an essay
+- **MAX 400 words** — this is a factor log, not an essay
 - Include: top 10 rankings table, signals generated, actions taken, regime summary
+- **If active catalysts from Step 3.25**: add a "## Catalyst Watch" section (2-4 sentences) summarizing what happened, how it affects holdings, and whether it changes any thesis. This is where readers see that you're tracking real-world events, not just numbers.
 - Do NOT write "Key Findings", "Insights", strategic commentary, or grades — just the data
 - Set `run_source="factor_loop"` (or `"factor_loop_weekend"` on Saturday)
 
