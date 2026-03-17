@@ -7,6 +7,7 @@ import { BenchmarkCard } from "@/components/trading/benchmark-card";
 import { PortfolioSummary, PositionsTable } from "@/components/trading/portfolio-card";
 import { TradeCard, TradeCardCompact } from "@/components/trading/trade-card";
 import { EarningsIntelligenceCard } from "@/components/trading/earnings-card";
+import { AiBubbleRiskCard } from "@/components/trading/AiBubbleRiskCard";
 import { Card, CardContent } from "@/components/ui/card";
 
 export default function DashboardPage() {
@@ -51,10 +52,11 @@ export default function DashboardPage() {
       <h1 className="text-2xl font-semibold">Dashboard</h1>
 
       {/* Row 1: Overview Cards */}
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-4">
         <PerformanceCard />
         <FactorSystemCard />
         <BenchmarkCard />
+        <AiBubbleRiskCard />
       </div>
 
       {/* Row 2: Portfolio Summary */}

@@ -6,6 +6,16 @@ Ongoing checklist of features/behaviors to verify after deployment. When reviewi
 
 ## Pending Verification
 
+### AI Sector Heat Score (next factor loop run — Mar 18)
+**Trigger**: First factor-loop run after `assess_ai_bubble_risk()` deployed (Mar 17).
+- [ ] `assess_ai_bubble_risk()` called in Step 1.5 without error
+- [ ] `ai_bubble_risk` memory key written (check `SELECT value FROM agent_memory WHERE key = 'ai_bubble_risk'`)
+- [ ] Result contains: `score`, `level`, `smh_rsi`, `smh_vs_200ma_pct`, `basket_breadth_pct`, `nvda_forward_pe`
+- [ ] Score is plausible (not 0 or 100 from a data error)
+- [ ] Score ≤ 60: run proceeds normally; score 61–80: journal recap notes "AI sector heat elevated"; score > 80: at most 1 AI-basket BUY executed
+- [ ] Dashboard AI Sector Heat card renders with score, RSI, 200MA gap, breadth %, and NVDA P/E
+- [ ] NVDA forward P/E fallback works (uses AMD if NVDA P/E unavailable)
+
 ### Anti-Churn Rules (accumulates over time)
 **Trigger**: After factor-loop has been running for 1+ week.
 - [ ] No positions sold within 5 trading days of purchase (unless stop-loss)

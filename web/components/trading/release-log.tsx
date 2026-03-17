@@ -11,6 +11,17 @@ interface ReleaseEntry {
 
 const RELEASES: ReleaseEntry[] = [
   {
+    version: "v1.3",
+    date: "Mar 17",
+    title: "AI Bubble / Sector Concentration Risk Monitor",
+    items: [
+      "New assess_ai_bubble_risk() tool: 0-100 score from portfolio concentration, SMH vs SPY momentum, and stale positions",
+      "Factor loop Step 1.5: runs every loop, persists result to agent_memory key ai_bubble_risk",
+      "Soft cap at score > 80: limits new AI-basket BUYs to 1 per run — never blocks SELL signals",
+      "Dashboard AI Concentration Risk card: score, level, AI exposure %, SMH vs SPY 3m, stale positions",
+    ],
+  },
+  {
     version: "v1.2",
     date: "Mar 15",
     title: "Stock Detail Pages & Dynamic Factor Weights",

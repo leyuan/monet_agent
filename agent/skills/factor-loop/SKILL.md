@@ -19,6 +19,8 @@ You are running the **factor-based trading loop** — a systematic, quantitative
    WHERE entry_type = 'user_insight' AND created_at >= NOW() - INTERVAL '3 days'
    ORDER BY created_at DESC
    ```
+4. **Check POSTDEPLOY_CHECK.md for pending items whose trigger is today or has passed.**
+   Read the file at `skills/../../../POSTDEPLOY_CHECK.md` (relative to the agent root). For each pending item whose trigger condition is met this run, verify it during the appropriate step and note the result in Step 5's journal entry (one bullet per verified item). Do not block trading to verify — work checks into steps that already run the relevant tool.
 
 ---
 
@@ -32,6 +34,23 @@ You are running the **factor-based trading loop** — a systematic, quantitative
 **VIX regime adjustment**: If VIX > 30:
 - Increase cash buffer from 20% to 30%
 - Note this for Step 4 — the generate_factor_rankings tool will use 8 max positions but you should limit to 6
+
+---
+
+## Step 1.5: AI Bubble / Concentration Risk Check
+
+Call `assess_ai_bubble_risk()`. It uses the live portfolio you already fetched in Step 1
+and downloads SMH vs SPY data internally.
+
+Store the result: `write_agent_memory("ai_bubble_risk", result)`
+
+**Do NOT use this to block BUY signals or force SELLs.** The factor composite IS the decision.
+
+Use it as follows:
+- Score ≤ 60: Proceed normally. Optionally note score in journal.
+- Score 61–80: Note "AI sector heat elevated (score: X, SMH RSI: Y, breadth: Z%)" in the Step 5 journal recap section.
+- Score > 80: Apply ONE soft cap — execute at most 1 new BUY from the AI/semi basket this run
+  (not per day — per run). Still execute all SELL signals normally.
 
 ---
 

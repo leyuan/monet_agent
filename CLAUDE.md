@@ -228,6 +228,7 @@ The median individual investor underperforms SPY by 3-5% annually (DALBAR). Main
 
 - **`IDEAS.md`** — Feature backlog with priority ordering. Update when new ideas come up.
 - **`POSTDEPLOY_CHECK.md`** — Ongoing verification checklist for deployed features. Check pending items when reviewing run quality. Move verified items to the completed section.
+  - **Auto-add rule**: Whenever a new tool, skill behavior, or dashboard feature is shipped, add a verification block to the `## Pending Verification` section of `POSTDEPLOY_CHECK.md` before closing the task. Include: feature name, trigger condition (which run or date will first exercise it), and 4–8 specific checkboxes covering the happy path and at least one failure mode (e.g., fallback/error case).
 - **`web/components/trading/release-log.tsx`** — User-facing release log. Update when shipping meaningful changes.
 
 ## Important Rules

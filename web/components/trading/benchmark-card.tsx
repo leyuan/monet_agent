@@ -60,11 +60,15 @@ export function BenchmarkCard() {
   }
 
   const latest = snapshots.length > 0 ? snapshots[snapshots.length - 1] : null;
+  const earliest = snapshots.length > 0 ? snapshots[0] : null;
   const deployedPct = latest?.deployed_pct ?? 0;
   const portfolioReturn = liveReturnPct ?? latest?.portfolio_cumulative_return ?? 0;
   const spyReturn = latest?.spy_cumulative_return ?? 0;
   const alpha = portfolioReturn - spyReturn;
   const isMeaningful = latest?.alpha != null;
+  const sinceLabel = earliest?.snapshot_date
+    ? new Date(earliest.snapshot_date).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
+    : null;
 
   return (
     <Card>
@@ -83,7 +87,7 @@ export function BenchmarkCard() {
         )}
         <p className="text-sm text-muted-foreground">
           {isMeaningful
-            ? "Alpha vs SPY"
+            ? <>Alpha vs SPY{sinceLabel ? <span className="text-xs ml-1 opacity-60">since {sinceLabel}</span> : null}</>
             : `${Math.round(deployedPct)}% deployed — alpha not yet meaningful`}
         </p>
 

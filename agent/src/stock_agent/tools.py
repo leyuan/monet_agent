@@ -1718,6 +1718,226 @@ def _fmt_pct(value: float | None) -> str:
     return f"{value:+.2f}%"
 
 
+AI_SEMI_BASKET = {
+    "NVDA", "AMD", "AVGO", "MU", "WDC", "AMAT", "LRCX", "STX",
+    "TSM", "CRUS", "SMCI", "INTC", "ARM", "MRVL", "QCOM", "TXN",
+}
+
+
+def _rsi(closes: "pd.Series", period: int = 14) -> float:
+    """Compute RSI for a price series."""
+    delta = closes.diff()
+    gain = delta.clip(lower=0).rolling(period).mean()
+    loss = (-delta.clip(upper=0)).rolling(period).mean()
+    rs = gain / loss
+    return float((100 - 100 / (1 + rs)).iloc[-1])
+
+
+def assess_ai_bubble_risk() -> dict:
+    """Assess AI/semiconductor sector heat using pure market signals.
+
+    Three components — all derived from market data, not from what Monet holds:
+
+    1. SMH technical overextension (0-40 pts):
+       - RSI(14) component: RSI ≤ 65 = 0 pts; 65→85 linearly = 0→20 pts
+       - 200-day MA gap component: ≤10% above = 0 pts; 10%→35% = 0→20 pts
+
+    2. AI basket breadth (0-30 pts): % of basket stocks within 10% of 52-week high.
+       - ≤50% near highs = 0 pts; 50%→100% linearly = 0→30 pts
+
+    3. Valuation stretch (0-30 pts): NVDA NTM P/E vs pre-AI-boom baseline of 35x.
+       - ≤35x = 0 pts; 35x→70x linearly = 0→30 pts; falls back to AMD if unavailable
+
+    Returns:
+        Dict with score (0-100), level, smh_rsi, smh_vs_200ma_pct,
+        basket_breadth_pct, nvda_forward_pe, action, and as_of timestamp.
+    """
+    score = 0
+
+    # --- Component 1: SMH technical overextension (0-40 pts) ---
+    smh_rsi: float = 0.0
+    smh_vs_200ma_pct: float = 0.0
+    try:
+        end = datetime.now()
+        start = end - timedelta(days=300)  # enough for 200-day MA + RSI warmup
+        smh_hist = yf.download(
+            "SMH",
+            start=start.strftime("%Y-%m-%d"),
+            end=end.strftime("%Y-%m-%d"),
+            progress=False,
+            auto_adjust=True,
+        )["Close"].squeeze()
+
+        smh_rsi = round(_rsi(smh_hist), 1)
+        ma200 = float(smh_hist.rolling(200).mean().iloc[-1])
+        current = float(smh_hist.iloc[-1])
+        smh_vs_200ma_pct = round((current / ma200 - 1) * 100, 1)
+
+        # RSI sub-score: 0 below 65, linear 65→85 = 0→20
+        rsi_pts = min(20, max(0, round((smh_rsi - 65) / 20 * 20)))
+        # 200MA gap sub-score: 0 below 10%, linear 10%→35% = 0→20
+        ma_pts = min(20, max(0, round((smh_vs_200ma_pct - 10) / 25 * 20)))
+        score += rsi_pts + ma_pts
+    except Exception:
+        pass
+
+    # --- Component 2: Basket breadth — % near 52-week highs (0-30 pts) ---
+    basket_breadth_pct: float = 0.0
+    try:
+        end = datetime.now()
+        start = end - timedelta(days=370)  # 52-week window + buffer
+        basket_hist = yf.download(
+            list(AI_SEMI_BASKET),
+            start=start.strftime("%Y-%m-%d"),
+            end=end.strftime("%Y-%m-%d"),
+            progress=False,
+            auto_adjust=True,
+        )["Close"]
+
+        near_high_count = 0
+        valid_count = 0
+        for sym in AI_SEMI_BASKET:
+            if sym not in basket_hist.columns:
+                continue
+            series = basket_hist[sym].dropna()
+            if len(series) < 20:
+                continue
+            valid_count += 1
+            high_52w = float(series.max())
+            current_price = float(series.iloc[-1])
+            if current_price >= high_52w * 0.90:  # within 10% of 52-week high
+                near_high_count += 1
+
+        if valid_count > 0:
+            basket_breadth_pct = round(near_high_count / valid_count * 100, 1)
+            # Linear: 50%→100% = 0→30 pts
+            breadth_pts = min(30, max(0, round((basket_breadth_pct - 50) / 50 * 30)))
+            score += breadth_pts
+    except Exception:
+        pass
+
+    # --- Component 3: Valuation stretch — NVDA NTM P/E vs 35x baseline (0-30 pts) ---
+    nvda_forward_pe: float | None = None
+    try:
+        for bellwether in ["NVDA", "AMD"]:
+            info = yf.Ticker(bellwether).info
+            pe = info.get("forwardPE")
+            if pe and pe > 0:
+                nvda_forward_pe = round(float(pe), 1)
+                break
+
+        if nvda_forward_pe is not None:
+            # Linear: 35x→70x = 0→30 pts; below 35x = 0
+            val_pts = min(30, max(0, round((nvda_forward_pe - 35) / 35 * 30)))
+            score += val_pts
+    except Exception:
+        pass
+
+    # --- Determine level and action ---
+    score = min(100, score)
+    if score <= 30:
+        level = "low"
+        action = "Sector heat is low. No constraints on AI/semi BUYs."
+    elif score <= 60:
+        level = "moderate"
+        action = "Sector moderately extended. Note in journal."
+    elif score <= 80:
+        level = "elevated"
+        action = "Sector overheated. Note 'AI sector elevated (score: X)' in Step 5 journal recap."
+    else:
+        level = "high"
+        action = "Sector at high heat. Limit new AI-basket BUYs to 1 this run."
+
+    return {
+        "score": score,
+        "level": level,
+        "smh_rsi": smh_rsi,
+        "smh_vs_200ma_pct": smh_vs_200ma_pct,
+        "basket_breadth_pct": basket_breadth_pct,
+        "nvda_forward_pe": nvda_forward_pe,
+        "action": action,
+        "as_of": datetime.now().isoformat(),
+    }
+
+
+def _inline_bold(text: str) -> str:
+    """Convert **bold** to <strong> tags."""
+    import re
+    return re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", html.escape(text))
+
+
+def _markdown_to_html(lines: list[str]) -> str:
+    """Convert markdown lines to email-safe HTML (headings, bullets, tables, paragraphs)."""
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+
+        # ## Heading
+        if line.startswith("#"):
+            import re
+            text = re.sub(r"^#{1,3}\s+", "", line)
+            out.append(
+                f"<p style='margin:18px 0 8px 0; font-size:15px; font-weight:700; color:#111827;'>"
+                f"{_inline_bold(text)}</p>"
+            )
+            i += 1
+            continue
+
+        # Table block
+        if line.startswith("|") and line.endswith("|"):
+            cells = [c.strip() for c in line.split("|")[1:-1]]
+            # skip separator
+            j = i + 1
+            import re
+            while j < len(lines) and re.match(r"^\|[\s\-:|]+\|$", lines[j]):
+                j += 1
+            rows: list[list[str]] = []
+            while j < len(lines) and lines[j].startswith("|") and lines[j].endswith("|"):
+                rows.append([c.strip() for c in lines[j].split("|")[1:-1]])
+                j += 1
+            th = "".join(
+                f"<th style='padding:4px 8px; font-size:12px; font-weight:700; color:#111827; "
+                f"background:#f9fafb; border-bottom:2px solid #d1d5db; text-align:left;'>"
+                f"{html.escape(c)}</th>"
+                for c in cells
+            )
+            body = ""
+            for row in rows:
+                tds = "".join(
+                    f"<td style='padding:4px 8px; font-size:12px; color:#374151; "
+                    f"border-bottom:1px solid #e5e7eb;'>{_inline_bold(c)}</td>"
+                    for c in row
+                )
+                body += f"<tr>{tds}</tr>"
+            out.append(
+                f"<table width='100%' cellpadding='0' cellspacing='0' "
+                f"style='border-collapse:collapse; margin:8px 0 12px 0;'>"
+                f"<thead><tr>{th}</tr></thead><tbody>{body}</tbody></table>"
+            )
+            i = j
+            continue
+
+        # Bullet
+        if line.startswith("- ") or line.startswith("* "):
+            text = line.lstrip("-* ")
+            out.append(
+                f"<p style='margin:0 0 4px 0; padding-left:12px; font-size:14px; "
+                f"line-height:1.6; color:#374151;'>&bull;&nbsp;{_inline_bold(text)}</p>"
+            )
+            i += 1
+            continue
+
+        # Plain paragraph
+        out.append(
+            f"<p style='margin:0 0 12px 0; line-height:1.6; color:#374151;'>"
+            f"{_inline_bold(line)}</p>"
+        )
+        i += 1
+
+    return "".join(out)
+
+
 def _build_subscription_email(
     today_label: str,
     reflection: dict | None,
@@ -1796,10 +2016,7 @@ def _build_subscription_email(
     text_parts.extend(["", "---", f"Unsubscribe: {unsub_url}"])
 
     # ── HTML version ─────────────────────────────────────────────────────────
-    html_paragraphs = "".join(
-        f"<p style='margin:0 0 12px 0; line-height:1.6; color:#374151;'>{html.escape(line)}</p>"
-        for line in lines
-    )
+    html_paragraphs = _markdown_to_html(lines)
 
     trades_html = ""
     if trade_lines:
@@ -1841,7 +2058,7 @@ def _build_subscription_email(
         "</tr><tr>"
         f"<td style='color:#9ca3af; font-size:13px; padding-top:8px;'>Monet alpha</td>"
         f"<td style='text-align:right; font-size:15px; font-weight:700; padding-top:8px; "
-        f"color:{_val_color(alpha_pct) if alpha_pct is not None else \"#9ca3af\"};'>"
+        f"color:{_val_color(alpha_pct) if alpha_pct is not None else '#9ca3af'};'>"
         f"{html.escape(alpha_display)}</td>"
         "</tr></table>"
         "</div>"
@@ -3037,6 +3254,8 @@ AUTONOMOUS_TOOLS = [
     discover_catalysts,
     # Earnings intelligence
     get_earnings_results,
+    # AI bubble / concentration risk
+    assess_ai_bubble_risk,
 ]
 
 def submit_user_insight(

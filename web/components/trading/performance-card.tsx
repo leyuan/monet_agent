@@ -12,6 +12,7 @@ interface PerformanceData {
   startingEquity: number;
   dailyPnl: number;
   filledTrades: number;
+  sinceDate: string | null;
 }
 
 export function PerformanceCard() {
@@ -24,12 +25,18 @@ export function PerformanceCard() {
 
       const STARTING_EQUITY = 100_000;
 
-      const [tradesRes, portfolioRes] = await Promise.all([
+      const [tradesRes, portfolioRes, firstSnapshotRes] = await Promise.all([
         supabase
           .from("trades")
           .select("id", { count: "exact", head: true })
           .in("status", ["filled", "OrderStatus.FILLED", "OrderStatus.PARTIALLY_FILLED"]),
         fetch("/api/portfolio").then((r) => r.ok ? r.json() : null).catch(() => null),
+        supabase
+          .from("equity_snapshots")
+          .select("snapshot_date")
+          .order("snapshot_date", { ascending: true })
+          .limit(1)
+          .maybeSingle(),
       ]);
 
       const acct = portfolioRes?.account;
@@ -48,6 +55,7 @@ export function PerformanceCard() {
         startingEquity,
         dailyPnl,
         filledTrades: tradesRes.count ?? 0,
+        sinceDate: firstSnapshotRes.data?.snapshot_date ?? null,
       });
       setLoading(false);
     }
@@ -68,10 +76,12 @@ export function PerformanceCard() {
 
   if (!data) return null;
 
-  const { overallReturn, currentEquity, startingEquity, dailyPnl, filledTrades } = data;
+  const { overallReturn, currentEquity, startingEquity, sinceDate } = data;
   const sign = overallReturn > 0 ? "+" : "";
   const formatted = `${sign}${overallReturn.toFixed(2)}%`;
-  const dailySign = dailyPnl >= 0 ? "+" : "";
+  const sinceLabel = sinceDate
+    ? new Date(sinceDate).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" })
+    : null;
   const fmt = (n: number) =>
     n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
@@ -90,7 +100,9 @@ export function PerformanceCard() {
         >
           {formatted}
         </p>
-        <p className="text-sm text-muted-foreground">Overall Return</p>
+        <p className="text-sm text-muted-foreground">
+          Overall Return{sinceLabel ? <span className="text-xs ml-1 opacity-60">since {sinceLabel}</span> : null}
+        </p>
 
         {currentEquity > 0 && (
           <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
@@ -100,28 +112,6 @@ export function PerformanceCard() {
           </div>
         )}
 
-        <div className="flex items-center gap-3 mt-1 text-xs">
-          {currentEquity > 0 && (
-            <>
-              <span
-                className={cn(
-                  "font-medium",
-                  dailyPnl > 0
-                    ? "text-green-600"
-                    : dailyPnl < 0
-                      ? "text-red-500"
-                      : "text-muted-foreground"
-                )}
-              >
-                {dailySign}{fmt(dailyPnl)} today
-              </span>
-              <span className="text-muted-foreground/40">&middot;</span>
-            </>
-          )}
-          <span className="text-muted-foreground">
-            {filledTrades} trade{filledTrades !== 1 ? "s" : ""} filled
-          </span>
-        </div>
       </CardContent>
     </Card>
   );
