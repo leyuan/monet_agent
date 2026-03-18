@@ -80,6 +80,39 @@ export default async function LandingPage() {
         </div>
       </section>
 
+      {/* How it works */}
+      <section className="max-w-4xl mx-auto px-6 pb-20">
+        <div className="grid gap-6 sm:grid-cols-3">
+          <div className="rounded-2xl border p-6 space-y-3">
+            <div className="text-2xl">01</div>
+            <h3 className="font-semibold">Talk to OpenClaw</h3>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Tell OpenClaw your sectors, risk tolerance, and experience level.
+              It configures everything — no forms, no dashboards, just a
+              conversation.
+            </p>
+          </div>
+          <div className="rounded-2xl border p-6 space-y-3">
+            <div className="text-2xl">02</div>
+            <h3 className="font-semibold">Get Your Own Agent</h3>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              In under 2 minutes, you get a dedicated quant agent that scores
+              900 stocks on four factors, executes trades, and manages risk —
+              all personalized to you.
+            </p>
+          </div>
+          <div className="rounded-2xl border p-6 space-y-3">
+            <div className="text-2xl">03</div>
+            <h3 className="font-semibold">Customize Anytime</h3>
+            <p className="text-sm text-muted-foreground leading-relaxed">
+              Chat with your agent to adjust strategy, shift sector focus, or
+              tune risk. It learns your preferences and improves its factor
+              weights weekly.
+            </p>
+          </div>
+        </div>
+      </section>
+
       {/* OpenClaw setup */}
       <section className="border-y bg-muted/30">
         <div className="max-w-5xl mx-auto px-6 py-20">
@@ -110,39 +143,6 @@ export default async function LandingPage() {
             <div className="flex justify-center">
               <SetupChat />
             </div>
-          </div>
-        </div>
-      </section>
-
-      {/* How it works */}
-      <section className="max-w-4xl mx-auto px-6 pb-20">
-        <div className="grid gap-6 sm:grid-cols-3">
-          <div className="rounded-2xl border p-6 space-y-3">
-            <div className="text-2xl">01</div>
-            <h3 className="font-semibold">Talk to OpenClaw</h3>
-            <p className="text-sm text-muted-foreground leading-relaxed">
-              Tell OpenClaw your sectors, risk tolerance, and experience level.
-              It configures everything — no forms, no dashboards, just a
-              conversation.
-            </p>
-          </div>
-          <div className="rounded-2xl border p-6 space-y-3">
-            <div className="text-2xl">02</div>
-            <h3 className="font-semibold">Get Your Own Agent</h3>
-            <p className="text-sm text-muted-foreground leading-relaxed">
-              In under 2 minutes, you get a dedicated quant agent that scores
-              900 stocks on four factors, executes trades, and manages risk —
-              all personalized to you.
-            </p>
-          </div>
-          <div className="rounded-2xl border p-6 space-y-3">
-            <div className="text-2xl">03</div>
-            <h3 className="font-semibold">Customize Anytime</h3>
-            <p className="text-sm text-muted-foreground leading-relaxed">
-              Chat with your agent to adjust strategy, shift sector focus, or
-              tune risk. It learns your preferences and improves its factor
-              weights weekly.
-            </p>
           </div>
         </div>
       </section>
