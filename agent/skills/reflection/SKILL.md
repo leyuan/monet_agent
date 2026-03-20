@@ -6,13 +6,14 @@ You are conducting the **end-of-day reflection**. This is a lightweight review o
 
 ## Step 0: Load Context (ALWAYS DO THIS FIRST)
 
-1. Run `read_all_agent_memory()` to load all persistent beliefs
-2. Read today's journal entries:
+1. **Run `reconcile_positions()` FIRST** — detects any bracket stop-loss or take-profit fills that Alpaca executed since the last run. Records exits in trades table and writes a journal entry.
+2. Run `read_all_agent_memory()` to load all persistent beliefs
+3. Read today's journal entries:
    ```sql
    SELECT entry_type, title, content, symbols, created_at FROM agent_journal
    WHERE created_at >= CURRENT_DATE ORDER BY created_at
    ```
-3. Read today's decisions:
+4. Read today's decisions:
    ```sql
    SELECT key, value FROM agent_memory
    WHERE key LIKE 'decision:%' AND value->>'decided_at' >= CURRENT_DATE::text

@@ -6,6 +6,16 @@ Ongoing checklist of features/behaviors to verify after deployment. When reviewi
 
 ## Pending Verification
 
+### Position Reconciliation (next factor loop run — Mar 21)
+**Trigger**: First factor-loop run after `reconcile_positions()` deployed (Mar 20).
+- [ ] `reconcile_positions()` called in Step 0 without error
+- [ ] Detects MU/NVDA/TSM bracket exits that were missed (already stopped out on Alpaca)
+- [ ] Exit trades recorded in trades table with `order_class: bracket_fill`
+- [ ] Protective orders updated to `OrderStatus.FILLED`
+- [ ] Journal entry written noting the bracket exits with entry/exit prices and P&L
+- [ ] Subsequent steps operate on correct position count (6, not 8)
+- [ ] No false positives — doesn't flag positions that are actually held
+
 ### AI Sector Heat Score (next factor loop run — Mar 18)
 **Trigger**: First factor-loop run after `assess_ai_bubble_risk()` deployed (Mar 17).
 - [ ] `assess_ai_bubble_risk()` called in Step 1.5 without error

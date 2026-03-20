@@ -8,18 +8,19 @@ You are running the **factor-based trading loop** — a systematic, quantitative
 
 ## Step 0: Load Context (ALWAYS DO THIS FIRST)
 
-1. Run `read_all_agent_memory()` to load all persistent beliefs
-2. Read your last 3 journal entries:
+1. **Run `reconcile_positions()` FIRST** — this detects any bracket stop-loss or take-profit fills that Alpaca executed since the last run. If it finds exits, it records them in the trades table and writes a journal entry. This ensures the rest of the loop operates on an accurate view of what we actually hold.
+2. Run `read_all_agent_memory()` to load all persistent beliefs
+3. Read your last 3 journal entries:
    ```sql
    SELECT entry_type, title, content, symbols, created_at FROM agent_journal ORDER BY created_at DESC LIMIT 3
    ```
-3. Check for user insights (last 3 days):
+4. Check for user insights (last 3 days):
    ```sql
    SELECT title, content, symbols, created_at FROM agent_journal
    WHERE entry_type = 'user_insight' AND created_at >= NOW() - INTERVAL '3 days'
    ORDER BY created_at DESC
    ```
-4. **Check POSTDEPLOY_CHECK.md for pending items whose trigger is today or has passed.**
+5. **Check POSTDEPLOY_CHECK.md for pending items whose trigger is today or has passed.**
    Read the file at `skills/../../../POSTDEPLOY_CHECK.md` (relative to the agent root). For each pending item whose trigger condition is met this run, verify it during the appropriate step and note the result in Step 5's journal entry (one bullet per verified item). Do not block trading to verify — work checks into steps that already run the relevant tool.
 
 ---
