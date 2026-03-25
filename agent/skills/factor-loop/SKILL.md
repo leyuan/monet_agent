@@ -179,10 +179,19 @@ For each BUY signal (after removing earnings-blocked ones):
 - If a signal shows "ENTRY BLOCKED" or "RE-ENTRY BLOCKED", record it as a WAIT decision with the reason
 
 ### Position Management
-For each HOLD signal, run `position_health_check(symbol)`:
+For each HOLD signal, run `position_health_check(symbol)`. It now returns `peak_pnl_pct` (highest P&L since entry) and `drawdown_from_peak_pct` (how far current price is below the peak).
+
+**Protection:**
 - If `protected: false` → `attach_bracket_to_position()` immediately
-- If up 15%+ → tighten stop to breakeven
-- If approaching target exit → consider trimming 50%
+
+**Bracket tightening** (use `attach_bracket_to_position` to replace the existing bracket):
+Observe the peak and drawdown pattern. If a position has peaked well above its current level, it may be oscillating and giving back gains. Use judgment — here are guidelines, not hard rules:
+
+- **Peak P&L 8%+ and drawdown from peak > 3%**: The position ran but is fading. Consider tightening the stop to breakeven (entry price) so you lock in at least zero. Still keep the TP at 15%.
+- **Peak P&L 12%+ and drawdown from peak > 5%**: The position ran significantly and is pulling back hard. Consider tightening the stop to +5% above entry and lowering TP to +12% to capture the next bounce rather than waiting for +15%.
+- **Peak P&L 5%+ in risk-off regime (VIX >26)**: Gains are fragile. Consider tightening the stop to breakeven — protecting capital matters more than upside in hostile regimes.
+
+When tightening a bracket, cancel the old protective order first, then `attach_bracket_to_position()` with the new levels. Note the action in the journal entry — "tightened AMAT stop from $320 to $338 (breakeven) after peak +12%, now +9%".
 
 ### Anti-Churn Rules
 - **Hysteresis on SELL**: Only sell if rank drops below 100 (not just out of top 20), OR eps_revision < 30, OR stop-loss hit

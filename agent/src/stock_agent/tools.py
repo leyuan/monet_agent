@@ -2661,6 +2661,42 @@ def position_health_check(symbol: str) -> dict:
 
     position_weight = round(market_value / equity * 100, 2) if equity else 0
 
+    # Peak price and drawdown since entry — gives the agent visibility into
+    # "this position was at +12% and is now at +5%" oscillation patterns.
+    peak_price = None
+    peak_pnl_pct = None
+    drawdown_from_peak_pct = None
+    try:
+        # Get the entry date from the most recent buy trade
+        sb_peek = get_supabase()
+        entry_trade = (
+            sb_peek.table("trades")
+            .select("created_at")
+            .eq("symbol", symbol.upper())
+            .eq("side", "buy")
+            .or_("status.ilike.%filled%,status.ilike.%FILLED%")
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if entry_trade.data:
+            entry_date = entry_trade.data[0]["created_at"][:10]
+            from datetime import datetime as _dt
+
+            days_since = (_dt.now() - _dt.strptime(entry_date, "%Y-%m-%d")).days + 1
+            df = get_historical_bars(symbol, days=max(days_since + 5, 10))
+            if df is not None and len(df) > 0:
+                # Filter to bars on or after entry date
+                df_since = df[df.index >= entry_date] if hasattr(df.index, '__ge__') else df.tail(days_since)
+                if len(df_since) > 0:
+                    peak_price = round(float(df_since["high"].max()), 2)
+                    if avg_entry > 0:
+                        peak_pnl_pct = round((peak_price / avg_entry - 1) * 100, 2)
+                    if peak_price > 0 and current_price > 0:
+                        drawdown_from_peak_pct = round((current_price / peak_price - 1) * 100, 2)
+    except Exception:
+        pass
+
     # Check stock analysis memory for targets
     stock_mem = read_memory(f"stock:{symbol.upper()}")
     target_entry = None
@@ -2720,6 +2756,9 @@ def position_health_check(symbol: str) -> dict:
         "protected": has_stop_loss,
         "dca_eligible": dca_eligible,
         "confidence": confidence,
+        "peak_price": peak_price,
+        "peak_pnl_pct": peak_pnl_pct,
+        "drawdown_from_peak_pct": drawdown_from_peak_pct,
     }
 
 
