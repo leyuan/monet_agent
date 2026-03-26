@@ -179,19 +179,25 @@ For each BUY signal (after removing earnings-blocked ones):
 - If a signal shows "ENTRY BLOCKED" or "RE-ENTRY BLOCKED", record it as a WAIT decision with the reason
 
 ### Position Management
-For each HOLD signal, run `position_health_check(symbol)`. It now returns `peak_pnl_pct` (highest P&L since entry) and `drawdown_from_peak_pct` (how far current price is below the peak).
+For each HOLD signal, run `position_health_check(symbol)`. It returns `peak_pnl_pct` (highest P&L since entry), `drawdown_from_peak_pct` (how far below the peak), and existing stop/TP levels from protective orders.
 
 **Protection:**
 - If `protected: false` → `attach_bracket_to_position()` immediately
 
-**Bracket tightening** (use `attach_bracket_to_position` to replace the existing bracket):
-Observe the peak and drawdown pattern. If a position has peaked well above its current level, it may be oscillating and giving back gains. Use judgment — here are guidelines, not hard rules:
+**Bracket tightening — act on these, don't just note them:**
 
-- **Peak P&L 8%+ and drawdown from peak > 3%**: The position ran but is fading. Consider tightening the stop to breakeven (entry price) so you lock in at least zero. Still keep the TP at 15%.
-- **Peak P&L 12%+ and drawdown from peak > 5%**: The position ran significantly and is pulling back hard. Consider tightening the stop to +5% above entry and lowering TP to +12% to capture the next bounce rather than waiting for +15%.
-- **Peak P&L 5%+ in risk-off regime (VIX >26)**: Gains are fragile. Consider tightening the stop to breakeven — protecting capital matters more than upside in hostile regimes.
+Review the peak and drawdown for each position. If a position has run up and is giving back gains, tighten the bracket. To tighten: cancel the existing protective order first (`cancel_order`), then `attach_bracket_to_position()` with new levels.
 
-When tightening a bracket, cancel the old protective order first, then `attach_bracket_to_position()` with the new levels. Note the action in the journal entry — "tightened AMAT stop from $320 to $338 (breakeven) after peak +12%, now +9%".
+| Condition | Action | New Stop | New TP |
+|-----------|--------|----------|--------|
+| Peak ≥10%, drawdown from peak ≥5% | **Tighten** | Entry price (breakeven) | Keep current TP |
+| Peak ≥12%, drawdown from peak ≥5% | **Tighten** | +5% above entry | Lower TP to +12% |
+| Peak ≥5% AND VIX >26 | **Tighten** | Entry price (breakeven) | Keep current TP |
+| Peak <5% or drawdown <3% | No action | — | — |
+
+**Only tighten upward.** Compare the proposed new stop to the existing stop. If the existing stop is already at or above the proposed level, skip — don't cancel and re-create the same bracket. Never loosen a stop.
+
+Log each actual adjustment in the journal: "Tightened AMAT stop from $320 → $338 (breakeven) after peak +12.4%, now +8.9%."
 
 ### Anti-Churn Rules
 - **Hysteresis on SELL**: Only sell if rank drops below 100 (not just out of top 20), OR eps_revision < 30, OR stop-loss hit
