@@ -2827,6 +2827,23 @@ def score_universe(top_n: int = 30) -> dict:
             "cached": True,
         }
 
+    # Cross-run cache: check agent_memory for recent scoring (survives process restarts)
+    try:
+        cached_mem = read_memory("factor_cache")
+        if cached_mem and cached_mem.get("value"):
+            cv = cached_mem["value"]
+            cached_at = cv.get("cached_at", 0)
+            if (now - cached_at) < _FACTOR_CACHE_TTL and len(cv.get("rankings", [])) >= 20:
+                _factor_cache["data"] = cv
+                _factor_cache["timestamp"] = cached_at
+                return {
+                    **cv,
+                    "rankings": cv["rankings"][:top_n],
+                    "cached": True,
+                }
+    except Exception:
+        pass
+
     tickers = get_sp500_sp400_tickers()
     if not tickers:
         return {"error": "Could not fetch ticker universe", "rankings": []}
@@ -2961,6 +2978,26 @@ def score_universe(top_n: int = 30) -> dict:
     for i, r in enumerate(results):
         r["rank"] = i + 1
 
+    # Sanity check: if scoring returned very few results, fall back to cached data
+    if len(results) < 20:
+        logger.warning("score_universe returned only %d stocks (expected 100+), checking cache", len(results))
+        try:
+            cached_mem = read_memory("factor_cache")
+            if cached_mem and cached_mem.get("value"):
+                cv = cached_mem["value"]
+                if len(cv.get("rankings", [])) >= 20:
+                    logger.info("Falling back to cached scoring with %d stocks", len(cv["rankings"]))
+                    _factor_cache["data"] = cv
+                    _factor_cache["timestamp"] = cv.get("cached_at", now)
+                    return {
+                        **cv,
+                        "rankings": cv["rankings"][:top_n],
+                        "cached": True,
+                        "fallback_reason": f"Fresh scoring returned only {len(results)} stocks, using cache",
+                    }
+        except Exception:
+            pass
+
     # Cache all results (not just top_n) so enrich and generate can use them
     cache_payload = {
         "universe_size": len(tickers),
@@ -2971,6 +3008,14 @@ def score_universe(top_n: int = 30) -> dict:
     }
     _factor_cache["data"] = cache_payload
     _factor_cache["timestamp"] = now
+
+    # Persist to agent_memory so the next cron run can use it (cross-process cache)
+    try:
+        # Store only top 50 to keep memory size reasonable
+        persist_payload = {**cache_payload, "rankings": results[:50], "cached_at": now}
+        db_write_memory("factor_cache", persist_payload)
+    except Exception:
+        logger.warning("Failed to persist factor cache to agent_memory")
 
     return {
         **cache_payload,
