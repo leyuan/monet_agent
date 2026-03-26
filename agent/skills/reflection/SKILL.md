@@ -53,14 +53,14 @@ Review the peak P&L and drawdown for each position. If a position has run up and
 
 | Condition | Action | New Stop | New TP |
 |-----------|--------|----------|--------|
-| Peak ≥10%, drawdown from peak ≥5% | **Tighten now** | Entry price (breakeven) | Keep current TP |
-| Peak ≥12%, drawdown from peak ≥5% | **Tighten now** | +5% above entry | Lower TP to +12% |
-| Peak ≥5% AND VIX >26 | **Tighten now** | Entry price (breakeven) | Keep current TP |
+| Peak ≥10%, drawdown from peak ≥5% | **Tighten** | Entry price (breakeven) | Keep current TP |
+| Peak ≥12%, drawdown from peak ≥5% | **Tighten** | +5% above entry | Lower TP to +12% |
+| Peak ≥5% AND VIX >26 | **Tighten** | Entry price (breakeven) | Keep current TP |
 | Peak <5% or drawdown <3% | No action | — | — |
 
-**This is not optional.** If a position meets the criteria, tighten the bracket. Log each adjustment in the journal: "Tightened AMAT stop from $320 → $338 (breakeven) after peak +12.4%, now +8.9%, drawdown -3.1%."
+**Only tighten upward.** Before acting, compare the proposed new stop to the existing stop (from `position_health_check` → protective order data). If the existing stop is already at or above the proposed level, skip — the bracket is already tight enough. Never loosen a stop. This prevents daily cancel/re-attach churn on positions that were already tightened.
 
-**Why this matters:** Positions like STX (+11.9% peak → +4.9% now, -6.2% drawdown) and WDC (+9.6% peak → +2.2% now, -6.8% drawdown) are giving back the majority of their gains. Without tightening, they oscillate until the stop-loss hits at -5% and all gains are lost.
+Log each actual adjustment in the journal: "Tightened AMAT stop from $320 → $338 (breakeven) after peak +12.4%, now +8.9%, drawdown -3.1%."
 
 ### 4. Factor Performance Evaluation
 - For each trade today: note composite score, fill price, and current P&L in a single line
