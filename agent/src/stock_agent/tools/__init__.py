@@ -45,6 +45,7 @@ from stock_agent.market_data import (
 from stock_agent.risk import check_risk
 from stock_agent.supabase_client import get_supabase
 from stock_agent.technical import compute_indicators
+from stock_agent.tools._shared import _avg_return, _DEFAULT_FACTOR_WEIGHTS, _load_factor_weights
 
 logger = logging.getLogger(__name__)
 
@@ -1863,12 +1864,6 @@ def _safe_float(val) -> float | None:
         return round(float(val), 2)
     except (TypeError, ValueError):
         return None
-
-
-def _avg_return(sectors: list[dict], etf_set: set[str]) -> float:
-    """Average return for a set of sector ETFs."""
-    vals = [s["total_return"] for s in sectors if s["etf"] in etf_set]
-    return sum(vals) / len(vals) if vals else 0.0
 
 
 def send_daily_recap() -> dict:
@@ -3777,26 +3772,6 @@ def position_health_check(symbol: str) -> dict:
 def _percentile_rank(series: pd.Series) -> pd.Series:
     """Compute percentile rank (0-100) for each value in a Series."""
     return series.rank(pct=True, na_option="keep") * 100
-
-
-_DEFAULT_FACTOR_WEIGHTS = {"momentum": 0.35, "quality": 0.30, "value": 0.20, "eps_revision": 0.15}
-
-
-def _load_factor_weights() -> dict:
-    """Load factor weights from agent_memory, falling back to defaults."""
-    try:
-        result = read_memory("factor_weights")
-        if result and result.get("value"):
-            stored = result["value"]
-            return {
-                "momentum": float(stored.get("momentum", _DEFAULT_FACTOR_WEIGHTS["momentum"])),
-                "quality": float(stored.get("quality", _DEFAULT_FACTOR_WEIGHTS["quality"])),
-                "value": float(stored.get("value", _DEFAULT_FACTOR_WEIGHTS["value"])),
-                "eps_revision": float(stored.get("eps_revision", _DEFAULT_FACTOR_WEIGHTS["eps_revision"])),
-            }
-    except Exception:
-        logger.warning("Failed to load factor_weights from memory, using defaults")
-    return _DEFAULT_FACTOR_WEIGHTS.copy()
 
 
 def score_universe(top_n: int = 30) -> dict:
