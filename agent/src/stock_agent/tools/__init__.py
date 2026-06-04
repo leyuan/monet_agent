@@ -1,51 +1,14 @@
-"""Stock Agent tools — autonomous-mode and chat-mode."""
+"""Stock Agent tools — autonomous-mode and chat-mode.
 
-import html
-import logging
-import os
-from datetime import datetime, timedelta
-from typing import Literal
+Public surface preserved from the pre-split tools.py: AUTONOMOUS_TOOLS,
+CHAT_TOOLS, and the individual tool functions (importable directly from
+stock_agent.tools). Implementations live in the category submodules.
+"""
 
-import time
+# Re-exported for external callers that import it through this package
+# (e.g. backtest/data.py).
+from stock_agent.market_data import get_sp500_sp400_tickers  # noqa: F401
 
-import httpx
-import pandas as pd
-import yfinance as yf
-from alpaca.trading.requests import MarketOrderRequest, LimitOrderRequest, TakeProfitRequest, StopLossRequest
-from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass
-from tavily import TavilyClient
-
-from langgraph_sdk import get_sync_client
-
-from stock_agent.alpaca_client import get_trading_client
-from stock_agent.db import (
-    add_to_watchlist,
-    create_trade,
-    get_trades,
-    get_watchlist,
-    read_journal,
-    read_memory,
-    remove_from_watchlist,
-    update_trade,
-    write_journal as db_write_journal,
-    write_memory as db_write_memory,
-    read_all_memory,
-    record_equity_snapshot as db_record_equity_snapshot,
-    get_equity_snapshots,
-    get_risk_settings,
-)
-from stock_agent.finnhub_client import get_finnhub
-from stock_agent.market_data import (
-    get_historical_bars,
-    get_historical_data_dict,
-    get_portfolio,
-    get_quote,
-    get_sp500_sp400_tickers,
-)
-from stock_agent.risk import check_risk
-from stock_agent.supabase_client import get_supabase
-from stock_agent.technical import compute_indicators
-from stock_agent.tools._shared import _DEFAULT_FACTOR_WEIGHTS, _load_factor_weights
 from stock_agent.tools.market import (
     internet_search,
     get_stock_quote,
@@ -105,9 +68,6 @@ from stock_agent.tools.factors import (
     get_earnings_results,
 )
 
-logger = logging.getLogger(__name__)
-
-# --- Factor scoring cache ---
 AUTONOMOUS_TOOLS = [
     internet_search,
     get_stock_quote,
