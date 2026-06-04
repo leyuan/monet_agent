@@ -7,11 +7,6 @@ from stock_agent.db import read_memory
 logger = logging.getLogger(__name__)
 
 
-def _avg_return(sectors: list[dict], etf_set: set[str]) -> float:
-    """Average return for a set of sector ETFs."""
-    vals = [s["total_return"] for s in sectors if s["etf"] in etf_set]
-    return sum(vals) / len(vals) if vals else 0.0
-
 
 _DEFAULT_FACTOR_WEIGHTS = {"momentum": 0.35, "quality": 0.30, "value": 0.20, "eps_revision": 0.15}
 
