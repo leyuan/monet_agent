@@ -4,7 +4,6 @@ import logging
 from datetime import datetime, timedelta
 
 import pandas as pd
-import yfinance as yf
 
 from stock_agent.market_data import get_sp500_sp400_tickers
 from stock_agent.supabase_client import get_supabase
