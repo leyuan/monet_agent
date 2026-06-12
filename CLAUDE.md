@@ -287,7 +287,7 @@ The median individual investor underperforms SPY by 3-5% annually (DALBAR). Main
 - Autonomous mode writes structured memory after every loop
 - All trades must pass risk checks before execution (5% stop loss, 80% max exposure, $500 daily loss limit)
 - The agent has ONE persistent identity, not per-user sessions
-- Max 5-8 positions, 10% max per position, 20% cash buffer
+- **These limits apply to Quant Core (`portfolio="quant"`) only**: Max 5-8 positions, 10% max per position, 20% cash buffer. The **Conviction** book (`portfolio="conviction"`) is deliberately concentrated — 1-3 names, 20-40% per position, wide (10-20%) cyclical stops — and trades via `risk_overrides=CONVICTION_RISK_OVERRIDES` (`max_position_pct=40`, `max_total_exposure_pct=95`). Do NOT "correct" Conviction back toward diversification.
 - After each cycle: compare outcomes to thesis, calibrate confidence, update beliefs
 - Sector rotation is a soft signal — don't block high-conviction trades solely because of it
 
@@ -296,7 +296,8 @@ The median individual investor underperforms SPY by 3-5% annually (DALBAR). Main
 Required in `agent/.env`:
 - `ANTHROPIC_API_KEY` — LLM
 - `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` — Database
-- `ALPACA_API_KEY`, `ALPACA_SECRET_KEY`, `ALPACA_BASE_URL` — Paper trading
+- `ALPACA_API_KEY`, `ALPACA_SECRET_KEY`, `ALPACA_BASE_URL` — Paper trading (Quant Core portfolio)
+- `ALPACA_API_KEY_CONVICTION`, `ALPACA_SECRET_KEY_CONVICTION` — Second paper account for the Conviction portfolio. `get_trading_client("conviction")` reads these; defaults to Quant Core when unset.
 - `TAVILY_API_KEY` — Web search
 - `LANGSMITH_API_KEY`, `LANGSMITH_TRACING`, `LANGSMITH_PROJECT` — Observability
 - `MODEL_NAME` — Model ID (default: `anthropic:claude-sonnet-4-5-20250929`)

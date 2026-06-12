@@ -201,7 +201,7 @@ def screen_stocks(
 
     # Phase 1: Bulk price download for fast filtering
     try:
-        price_data = yf.download(tickers, period="3mo", progress=False, threads=True)
+        price_data = yf.download(tickers, period="3mo", progress=False, threads=True, auto_adjust=True)
     except Exception as e:
         return {"error": f"Price download failed: {e}", "candidates": []}
 
@@ -493,7 +493,7 @@ def sector_analysis(period: Literal["1mo", "3mo", "6mo", "1y"] = "3mo") -> dict:
     etf_symbols = list(SECTOR_ETFS.keys()) + ["SPY", "QQQ"]
 
     try:
-        data = yf.download(etf_symbols, period=period, progress=False, threads=True)
+        data = yf.download(etf_symbols, period=period, progress=False, threads=True, auto_adjust=True)
     except Exception as e:
         return {"error": f"Failed to download sector data: {e}"}
 
@@ -613,7 +613,7 @@ def peer_comparison(symbol: str, peers: list[str] | None = None) -> dict:
 
     # Compute 3-month price changes
     try:
-        price_data = yf.download(all_symbols, period="3mo", progress=False, threads=True)
+        price_data = yf.download(all_symbols, period="3mo", progress=False, threads=True, auto_adjust=True)
         close = price_data["Close"]
         for comp in comparisons:
             sym = comp["symbol"]
@@ -896,7 +896,7 @@ def market_breadth() -> dict:
     ]
 
     try:
-        data = yf.download(sample, period="1y", progress=False, threads=True)
+        data = yf.download(sample, period="1y", progress=False, threads=True, auto_adjust=True)
     except Exception as e:
         return {"error": f"Failed to download breadth data: {e}"}
 
@@ -978,6 +978,8 @@ def place_order(
     take_profit_price: float | None = None,
     stop_loss_price: float | None = None,
     composite_score: float | None = None,
+    portfolio: str = "quant",
+    risk_overrides: dict | None = None,
 ) -> dict:
     """Place a trade order via Alpaca paper trading, optionally as a bracket order.
 
@@ -1007,6 +1009,11 @@ def place_order(
         stop_loss_price: Stop price for stop-loss leg.
         composite_score: Factor composite score (0-100). When provided, auto-derives
             order_type and limit_price based on score thresholds.
+        portfolio: Which book to trade in — "quant" (default, Quant Core systematic
+            strategy) or "conviction" (concentrated cyclical book on its own Alpaca
+            account). Routes the order, risk check, and trade record to that book.
+        risk_overrides: Optional dict merged over default risk settings (e.g. the
+            Conviction book passes {"max_position_pct": 40, "max_total_exposure_pct": 95}).
 
     Returns:
         Dict with order details and trade record.
@@ -1029,7 +1036,7 @@ def place_order(
         if confidence is None:
             confidence = round(composite_score / 100, 2)
     # Risk check
-    risk = check_risk(symbol, side, quantity, limit_price)
+    risk = check_risk(symbol, side, quantity, limit_price, portfolio=portfolio, risk_overrides=risk_overrides)
     if not risk["approved"]:
         return {"error": f"Risk check failed: {risk['reason']}", "risk": risk}
 
@@ -1101,7 +1108,7 @@ def place_order(
         request = MarketOrderRequest(**order_kwargs)
 
     # Place order with Alpaca
-    client = get_trading_client()
+    client = get_trading_client(portfolio)
     order = client.submit_order(request)
 
     # Record in database
@@ -1117,6 +1124,7 @@ def place_order(
         take_profit_price=take_profit_price,
         stop_loss_price=stop_loss_price,
         order_class=order_class_str,
+        portfolio=portfolio,
     )
 
     # Update with broker order ID
@@ -1205,8 +1213,8 @@ def cancel_order(
     if "filled" in status or "cancelled" in status or "canceled" in status:
         return {"error": f"Order already in terminal state: {trade.get('status')}"}
 
-    # Cancel on Alpaca
-    client = get_trading_client()
+    # Cancel on Alpaca — route to the account that owns this trade
+    client = get_trading_client(trade.get("portfolio", "quant"))
     try:
         client.cancel_order_by_id(broker_order_id)
     except Exception as e:
@@ -1283,14 +1291,14 @@ def get_open_orders() -> dict:
 
     open_trades = result.data or []
 
-    # Also check current status on Alpaca for each
-    client = get_trading_client()
+    # Also check current status on Alpaca for each (route by owning portfolio)
     enriched = []
     for trade in open_trades:
         broker_id = trade.get("broker_order_id")
         alpaca_status = None
         if broker_id:
             try:
+                client = get_trading_client(trade.get("portfolio", "quant"))
                 order = client.get_order_by_id(broker_id)
                 alpaca_status = str(order.status)
                 # Sync status if it changed
@@ -1603,12 +1611,16 @@ def get_portfolio_state() -> dict:
     return get_portfolio()
 
 
-def reconcile_positions() -> dict:
+def reconcile_positions(portfolio: str = "quant") -> dict:
     """Reconcile Alpaca positions against trades table to detect bracket stop-loss/take-profit fills.
 
     Call this at the start of every factor loop and EOD reflection. It compares
     Alpaca's live positions to the trades table and detects positions that were
     closed by bracket orders (stop-loss or take-profit) without the agent knowing.
+
+    portfolio: which book to reconcile — "quant" (default) or "conviction". Only
+        that portfolio's Alpaca account and its own trade rows are considered, so
+        the two books never cross-contaminate each other's ghost detection.
 
     For each detected exit:
     - Updates the protective sell order in trades table to 'filled'
@@ -1621,7 +1633,7 @@ def reconcile_positions() -> dict:
     from alpaca.trading.requests import GetOrdersRequest
     from alpaca.trading.enums import QueryOrderStatus
 
-    client = get_trading_client()
+    client = get_trading_client(portfolio)
     sb = get_supabase()
 
     # 1. Get live Alpaca positions
@@ -1633,6 +1645,7 @@ def reconcile_positions() -> dict:
         sb.table("trades")
         .select("symbol, broker_order_id, quantity, filled_avg_price, created_at")
         .eq("side", "buy")
+        .eq("portfolio", portfolio)
         .or_("status.ilike.%filled%,status.ilike.%FILLED%")
         .order("created_at", desc=True)
         .execute()
@@ -1650,6 +1663,7 @@ def reconcile_positions() -> dict:
         sb.table("trades")
         .select("symbol, created_at")
         .eq("side", "sell")
+        .eq("portfolio", portfolio)
         .or_("status.ilike.%filled%,status.ilike.%FILLED%")
         .order("created_at", desc=True)
         .execute()
@@ -1713,6 +1727,7 @@ def reconcile_positions() -> dict:
                     order_type="market",
                     thesis=f"Bracket {exit_type} executed by Alpaca at ${fill_price:.2f}",
                     order_class="bracket_fill",
+                    portfolio=portfolio,
                 )
                 update_trade(exit_trade["id"], {
                     "status": "OrderStatus.FILLED",
@@ -1727,6 +1742,7 @@ def reconcile_positions() -> dict:
                     .select("id")
                     .eq("symbol", sym)
                     .eq("side", "sell")
+                    .eq("portfolio", portfolio)
                     .or_("order_class.eq.oco,order_class.eq.bracket,order_class.eq.stop")
                     .or_("status.ilike.%new%,status.ilike.%accepted%,status.ilike.%pending%")
                     .execute()
@@ -2300,6 +2316,327 @@ def assess_ai_cycle_durability() -> dict:
         pass
 
     return result
+
+
+# ============================================================
+# AI Capex Trend — automated capex signal (replaces manual ai_capex_tracker)
+# ============================================================
+
+# Demand side: hyperscaler capex IS the AI infrastructure spend. Supply side:
+# memory/storage names whose capex tracks the HBM/NAND build.
+AI_CAPEX_HYPERSCALERS = ["MSFT", "GOOGL", "AMZN", "META"]
+AI_CAPEX_MEMORY = ["MU", "WDC", "SNDK"]
+
+
+def _quarterly_capex(symbol: str) -> list[tuple[str, float]]:
+    """Quarterly capex for a symbol as [(period_end, abs_capex), ...] newest-first.
+
+    Reads yfinance quarterly cash-flow "Capital Expenditure" (reported negative →
+    abs). Returns [] on any failure or missing data so one bad ticker never breaks
+    the aggregate.
+    """
+    try:
+        qcf = yf.Ticker(symbol).quarterly_cashflow
+        if qcf is None or qcf.empty or "Capital Expenditure" not in qcf.index:
+            return []
+        row = qcf.loc["Capital Expenditure"]
+        out: list[tuple[str, float]] = []
+        for col in qcf.columns:
+            val = row.get(col)
+            if val is None or pd.isna(val):
+                continue
+            period = str(col.date()) if hasattr(col, "date") else str(col)
+            out.append((period, abs(float(val))))
+        out.sort(key=lambda x: x[0], reverse=True)
+        return out
+    except Exception:
+        return []
+
+
+def _capex_yoy(series: list[tuple[str, float]]) -> float | None:
+    """YoY % using latest quarter vs 4 quarters ago. Needs >=5 quarters."""
+    if len(series) < 5 or series[4][1] == 0:
+        return None
+    return round((series[0][1] / series[4][1] - 1) * 100, 1)
+
+
+def _capex_qoq(series: list[tuple[str, float]]) -> float | None:
+    """QoQ % using latest vs prior quarter. Needs >=2 quarters."""
+    if len(series) < 2 or series[1][1] == 0:
+        return None
+    return round((series[0][1] / series[1][1] - 1) * 100, 1)
+
+
+def _basket_capex_yoy(symbols: list[str]) -> tuple[float | None, dict]:
+    """Aggregate capex YoY across a basket + per-name detail.
+
+    Aggregate = (sum latest-quarter capex) / (sum year-ago-quarter capex) - 1,
+    over names that have >=5 quarters of data.
+    """
+    per_name: dict[str, dict] = {}
+    sum_latest = 0.0
+    sum_year_ago = 0.0
+    for sym in symbols:
+        series = _quarterly_capex(sym)
+        if not series:
+            per_name[sym] = {"latest": None, "yoy_pct": None, "qoq_pct": None, "period": None}
+            continue
+        yoy = _capex_yoy(series)
+        per_name[sym] = {
+            "latest": round(series[0][1], 0),
+            "yoy_pct": yoy,
+            "qoq_pct": _capex_qoq(series),
+            "period": series[0][0],
+        }
+        if len(series) >= 5:
+            sum_latest += series[0][1]
+            sum_year_ago += series[4][1]
+    agg = round((sum_latest / sum_year_ago - 1) * 100, 1) if sum_year_ago > 0 else None
+    return agg, per_name
+
+
+def compute_ai_capex_trend(
+    forward_guidance_direction: str | None = None,
+    forward_guidance_summary: str = "",
+) -> dict:
+    """Compute the AI-infrastructure capex trend from company financials.
+
+    This automates the previously-manual ``ai_capex_tracker`` memory. It pulls
+    quarterly capex from yfinance cash-flow statements for the hyperscalers
+    (MSFT, GOOGL, AMZN, META — the demand for AI infra) and the memory/storage
+    names (MU, WDC, SNDK — the supply side), computes YoY/QoQ growth, and derives
+    a ``guidance_direction`` that ``assess_ai_cycle_durability()`` reads for its
+    capex signal.
+
+    Reported capex is backward-looking. To capture FORWARD guidance (where the
+    "will it keep increasing" answer lives), the agent should first run an
+    internet_search for recent hyperscaler capex-guidance headlines and pass:
+        forward_guidance_direction: "raising" | "maintaining" | "cutting"
+        forward_guidance_summary: one-line takeaway
+    The tool blends this qualitative read with the financial trend.
+
+    Args:
+        forward_guidance_direction: Optional agent read of forward capex guidance.
+        forward_guidance_summary: Optional one-line summary of that guidance.
+
+    Returns:
+        Dict with guidance_direction, hyperscaler_total_yoy, memory_yoy, per_name
+        detail, summary, and as_of. Also persisted to agent_memory.ai_capex_tracker.
+    """
+    hyper_yoy, hyper_detail = _basket_capex_yoy(AI_CAPEX_HYPERSCALERS)
+    mem_yoy, mem_detail = _basket_capex_yoy(AI_CAPEX_MEMORY)
+
+    # Financial direction from hyperscaler capex YoY (the headline demand signal).
+    if hyper_yoy is None:
+        financial_direction = "unknown"
+    elif hyper_yoy >= 15:
+        financial_direction = "accelerating"
+    elif hyper_yoy >= 0:
+        financial_direction = "stable"
+    else:
+        financial_direction = "decelerating"
+
+    # Blend in the agent's forward-guidance read, if provided.
+    direction = financial_direction
+    fg = (forward_guidance_direction or "").lower().strip()
+    if fg == "raising" and financial_direction in ("stable", "unknown"):
+        direction = "accelerating"
+    elif fg == "raising" and financial_direction == "decelerating":
+        direction = "stable"  # conflicting signals → split the difference
+    elif fg == "cutting":
+        downgrade = {"accelerating": "stable", "stable": "decelerating",
+                     "decelerating": "decelerating", "unknown": "decelerating"}
+        direction = downgrade[financial_direction]
+    # "maintaining" or no guidance → keep the financial direction.
+
+    hyper_str = f"{hyper_yoy:+.0f}%" if hyper_yoy is not None else "n/a"
+    mem_str = f"{mem_yoy:+.0f}%" if mem_yoy is not None else "n/a"
+    summary = (
+        f"Hyperscaler capex YoY {hyper_str}, memory capex YoY {mem_str} → "
+        f"{direction}."
+    )
+    if forward_guidance_summary:
+        summary += f" Guidance: {forward_guidance_summary}"
+
+    result = {
+        "guidance_direction": direction,           # consumed by assess_ai_cycle_durability
+        "financial_direction": financial_direction,
+        "hyperscaler_total_yoy": hyper_yoy,
+        "memory_yoy": mem_yoy,
+        "per_name": {**hyper_detail, **mem_detail},
+        "forward_guidance_direction": forward_guidance_direction,
+        "forward_guidance_summary": forward_guidance_summary or None,
+        "summary": summary,
+        "as_of": datetime.now().isoformat(),
+    }
+
+    try:
+        get_supabase().table("agent_memory").upsert(
+            {"key": "ai_capex_tracker", "value": result}, on_conflict="key"
+        ).execute()
+    except Exception as e:
+        logger.warning("Failed to persist ai_capex_tracker: %s", e)
+
+    return result
+
+
+def record_ai_cycle_snapshot() -> dict:
+    """Persist today's AI super-cycle reading to the ai_cycle_snapshots history table.
+
+    Reads the latest assessments from agent_memory (ai_cycle_durability,
+    ai_bubble_risk, ai_capex_tracker) and writes one dated row so the AI Cycle
+    page can chart the cycle over time. Run AFTER assess_ai_cycle_durability,
+    assess_ai_bubble_risk, and compute_ai_capex_trend in the daily refresh.
+
+    Returns:
+        Dict with the snapshot row, or {"status": "skipped"} if no cycle data yet.
+    """
+    sb = get_supabase()
+
+    def _read(key: str) -> dict:
+        try:
+            row = sb.table("agent_memory").select("value").eq("key", key).maybe_single().execute()
+            return (row.data or {}).get("value", {}) if row and row.data else {}
+        except Exception:
+            return {}
+
+    cycle = _read("ai_cycle_durability")
+    bubble = _read("ai_bubble_risk")
+    capex = _read("ai_capex_tracker")
+
+    if not cycle:
+        return {"status": "skipped", "message": "No ai_cycle_durability yet — run assess_ai_cycle_durability first."}
+
+    layers_participating = (
+        cycle.get("signals", {}).get("stack_breadth", {}).get("layers_participating")
+    )
+
+    today = datetime.now().strftime("%Y-%m-%d")
+    row = {
+        "snapshot_date": today,
+        "cycle_score": cycle.get("score"),
+        "phase": cycle.get("phase"),
+        "bubble_score": bubble.get("score"),
+        "bubble_level": bubble.get("level"),
+        "capex_direction": capex.get("guidance_direction"),
+        "hyperscaler_capex_yoy": capex.get("hyperscaler_total_yoy"),
+        "memory_capex_yoy": capex.get("memory_yoy"),
+        "layers_participating": layers_participating,
+        "signals": {
+            "cycle_signals": cycle.get("signals"),
+            "capex_per_name": capex.get("per_name"),
+            "bubble": {k: bubble.get(k) for k in ("smh_rsi", "basket_breadth_pct", "nvda_forward_pe")},
+        },
+    }
+    try:
+        sb.table("ai_cycle_snapshots").upsert(row, on_conflict="snapshot_date").execute()
+    except Exception as e:
+        logger.warning("Failed to record ai_cycle_snapshot: %s", e)
+        return {"status": "error", "error": str(e)}
+
+    return {"status": "recorded", **{k: row[k] for k in ("snapshot_date", "cycle_score", "phase", "capex_direction", "hyperscaler_capex_yoy")}}
+
+
+# ============================================================
+# Conviction portfolio — concentrated cyclical position sizing
+# ============================================================
+
+CONVICTION_TIERS = {"high": 0.40, "medium": 0.30, "starter": 0.20}
+CONVICTION_RISK_OVERRIDES = {"max_position_pct": 40, "max_total_exposure_pct": 95}
+
+
+def size_cycle_position(symbol: str, conviction: str = "medium", portfolio: str = "conviction") -> dict:
+    """Size a concentrated Conviction-book position with a wide cyclical stop.
+
+    The Conviction book holds 1-3 names, each sized 20-40% of the book by
+    conviction tier. Because memory/AI-infra cyclicals are volatile, the
+    protective stop is intentionally WIDER than Quant Core's [3%,8%] — ~3x
+    ATR(14) clamped to [10%, 20%] — so ordinary swings don't shake you out
+    before the capex-cycle thesis plays out. The take-profit is generous (~3:1
+    reward:risk) so the bracket is valid without capping the ride; the
+    conviction-loop's hard exit rules manage the real exit.
+
+    Args:
+        symbol: Ticker to size.
+        conviction: "high" (40% of book), "medium" (30%), or "starter" (20%).
+        portfolio: book to size against (default "conviction").
+
+    Returns:
+        Dict with quantity, target_pct, current_price, stop_loss_price,
+        take_profit_price, stop_pct, and a rationale. Feed stop_loss_price +
+        take_profit_price straight into:
+          place_order(symbol, "buy", quantity, take_profit_price=...,
+                      stop_loss_price=..., portfolio="conviction",
+                      risk_overrides=CONVICTION_RISK_OVERRIDES)
+    """
+    tier = (conviction or "medium").lower().strip()
+    target_pct = CONVICTION_TIERS.get(tier, CONVICTION_TIERS["medium"])
+
+    port = get_portfolio(portfolio)
+    equity = float(port.get("equity", 0))
+    cash = float(port.get("cash", 0))
+    if equity <= 0:
+        return {"error": f"{portfolio} account equity is zero — cannot size."}
+
+    quote = get_quote(symbol)
+    price = float(quote.get("ask_price") or quote.get("price") or quote.get("bid_price") or 0)
+
+    # Wide ATR-based stop for a cyclical: ~3x ATR(14), clamped [10%, 20%].
+    stop_pct = 0.15  # fallback if ATR unavailable
+    try:
+        df = get_historical_bars(symbol, days=90)
+        if df is not None and len(df) >= 15:
+            high, low, close = df["high"], df["low"], df["close"]
+            if price <= 0:
+                price = float(close.iloc[-1])
+            prev_close = close.shift(1)
+            tr = pd.concat(
+                [high - low, (high - prev_close).abs(), (low - prev_close).abs()],
+                axis=1,
+            ).max(axis=1)
+            atr = tr.rolling(14).mean().iloc[-1]
+            if pd.notna(atr) and atr > 0 and price > 0:
+                stop_pct = min(0.20, max(0.10, float(atr) / price * 3.0))
+    except Exception as e:
+        logger.warning("ATR stop calc failed for %s (%s); using %.0f%% fallback", symbol, e, stop_pct * 100)
+
+    if price <= 0:
+        return {"error": f"No valid price for {symbol}."}
+
+    target_dollars = min(equity * target_pct, cash)
+    quantity = int(target_dollars // price)
+    if quantity < 1:
+        return {
+            "error": (
+                f"Insufficient cash in {portfolio}: {symbol} is ${price:.0f}/share, "
+                f"target ${equity * target_pct:.0f} ({round(target_pct*100)}% of book), "
+                f"cash ${cash:.0f}."
+            )
+        }
+
+    stop_loss_price = round(price * (1 - stop_pct), 2)
+    take_profit_price = round(price * (1 + stop_pct * 3), 2)
+
+    return {
+        "symbol": symbol,
+        "portfolio": portfolio,
+        "conviction": tier,
+        "target_pct": round(target_pct * 100, 1),
+        "quantity": quantity,
+        "target_dollars": round(quantity * price, 2),
+        "current_price": round(price, 2),
+        "stop_pct": round(stop_pct * 100, 1),
+        "stop_loss_price": stop_loss_price,
+        "take_profit_price": take_profit_price,
+        "book_equity": round(equity, 2),
+        "book_cash": round(cash, 2),
+        "risk_overrides": CONVICTION_RISK_OVERRIDES,
+        "rationale": (
+            f"{tier} conviction → {round(target_pct*100)}% of ${equity:,.0f} book "
+            f"= {quantity} sh @ ${price:.2f}. Wide {round(stop_pct*100,1)}% cyclical "
+            f"stop (3x ATR) at ${stop_loss_price}, TP ${take_profit_price}."
+        ),
+    }
 
 
 # ============================================================
@@ -2975,163 +3312,166 @@ def _markdown_to_html(lines: list[str]) -> str:
     return "".join(out)
 
 
-def _build_subscription_email(
-    today_label: str,
-    reflection: dict | None,
-    trades: list[dict],
-    portfolio: dict | None,
-    overall_return_pct: float | None,
-    spy_return_pct: float | None,
-    alpha_pct: float | None,
-    recipient_email: str | None = None,
-) -> tuple[str, str]:
-    """Build HTML and plain-text daily recap email content.
+def _build_subscription_email(data: dict, recipient_email: str | None = None) -> tuple[str, str]:
+    """Build the single daily digest email (HTML + plain text).
+
+    Critical data first, easy to scan: both portfolios (Quant Core + Conviction),
+    the AI super-cycle headline, then today's trades and a short takeaway.
 
     Args:
-        today_label: Human-readable date string, e.g. "Tuesday, March 17, 2026".
-        reflection: Today's journal reflection dict (title, content) or None.
-        trades: List of today's trade dicts from the trades table.
-        portfolio: Live portfolio dict from get_portfolio(), or None.
-        overall_return_pct: Portfolio return since $100k inception (matches dashboard).
-        spy_return_pct: SPY cumulative return since inception (from equity_snapshots).
-        alpha_pct: overall_return_pct - spy_return_pct, or None if unavailable.
-        recipient_email: Subscriber email used to generate a personalized unsubscribe link.
+        data: {
+            "today_label": str,
+            "books": [ {"name", "equity", "daily_pnl", "return_pct",
+                        "spy_pct", "alpha_pct"} ],   # one per portfolio
+            "cycle": {"phase_label", "score", "capex_direction",
+                      "hyperscaler_yoy", "heat_level", "heat_score"} | None,
+            "trades": [ {"portfolio","side","symbol","qty","price"} ],
+            "reflection": {"content": str} | None,
+        }
+        recipient_email: subscriber email for a personalized unsubscribe link.
     """
     import urllib.parse
 
-    reflection_body = (reflection or {}).get("content") or "No reflection entry was recorded today."
-    lines = [line.strip() for line in reflection_body.splitlines() if line.strip()]
+    today_label = data.get("today_label", "")
+    books = data.get("books", [])
+    cycle = data.get("cycle")
+    trades = data.get("trades", [])
+    reflection = data.get("reflection")
 
-    latest_equity = portfolio.get("equity") if portfolio else None
-    daily_pnl = portfolio.get("daily_pnl") if portfolio else None
-
-    def _val_color(val: float | None) -> str:
-        """Return green/red/dark based on sign of val."""
+    def _color(val) -> str:
         if val is None:
             return "#111827"
         return "#16a34a" if val > 0 else ("#dc2626" if val < 0 else "#111827")
 
-    def _metric_cell(label: str, value: str, val_color: str = "#111827") -> str:
-        """Single metric card as a <td> for table-based 2x2 grid."""
-        return (
-            f"<td style='width:50%; padding:6px; vertical-align:top;'>"
-            f"<div style='border:1px solid #e5e7eb; border-radius:14px; padding:14px 16px; background:#fafaf9;'>"
-            f"<p style='margin:0; font-size:12px; color:#6b7280; text-transform:uppercase; letter-spacing:0.06em;'>"
-            f"{html.escape(label)}</p>"
-            f"<p style='margin:8px 0 0 0; font-size:22px; font-weight:700; color:{val_color};'>"
-            f"{html.escape(value)}</p>"
-            f"</div></td>"
+    def _signed(val) -> str:
+        if val is None:
+            return "—"
+        return f"{val:+.2f}%"
+
+    # ── Portfolios table ──────────────────────────────────────────────────────
+    head = (
+        "<tr style='font-size:11px; text-transform:uppercase; letter-spacing:0.05em; color:#9ca3af;'>"
+        "<td style='padding:6px 8px;'>Book</td>"
+        "<td style='padding:6px 8px; text-align:right;'>Equity</td>"
+        "<td style='padding:6px 8px; text-align:right;'>Day P&L</td>"
+        "<td style='padding:6px 8px; text-align:right;'>Return</td>"
+        "<td style='padding:6px 8px; text-align:right;'>vs SPY</td></tr>"
+    )
+    body_rows = ""
+    for b in books:
+        pnl = b.get("daily_pnl")
+        ret = b.get("return_pct")
+        alpha = b.get("alpha_pct")
+        vs = _signed(alpha) if alpha is not None else "—"
+        body_rows += (
+            "<tr style='border-top:1px solid #eee; font-size:14px;'>"
+            f"<td style='padding:8px; font-weight:600;'>{html.escape(b.get('name',''))}</td>"
+            f"<td style='padding:8px; text-align:right;'>{html.escape(_fmt_currency(b.get('equity')))}</td>"
+            f"<td style='padding:8px; text-align:right; color:{_color(pnl)};'>{html.escape(_fmt_currency(pnl))}</td>"
+            f"<td style='padding:8px; text-align:right; color:{_color(ret)};'>{html.escape(_signed(ret))}</td>"
+            f"<td style='padding:8px; text-align:right; color:{_color(alpha)};'>{html.escape(vs)}</td></tr>"
+        )
+    portfolios_html = (
+        "<table width='100%' cellpadding='0' cellspacing='0' "
+        "style='border-collapse:collapse; margin-top:4px;'>"
+        f"{head}{body_rows}</table>"
+    )
+
+    # ── AI super-cycle headline band ──────────────────────────────────────────
+    cycle_html = ""
+    if cycle:
+        yoy = cycle.get("hyperscaler_yoy")
+        yoy_str = f"{yoy:+.0f}%" if yoy is not None else "n/a"
+        capex_dir = (cycle.get("capex_direction") or "—").title()
+        phase = cycle.get("phase_label") or "—"
+        cscore = cycle.get("score")
+        heat = (cycle.get("heat_level") or "—").title()
+        hscore = cycle.get("heat_score")
+        cycle_html = (
+            "<div style='margin-top:18px; padding:14px 16px; border-radius:14px; background:#111827; color:#f9fafb;'>"
+            "<p style='margin:0 0 6px 0; font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color:#9ca3af;'>AI Super-Cycle</p>"
+            f"<p style='margin:0; font-size:14px; line-height:1.6;'>"
+            f"Cycle <b>{html.escape(phase)}</b> {cscore if cscore is not None else '—'}/100 &nbsp;·&nbsp; "
+            f"Capex <b style='color:#34d399;'>{html.escape(capex_dir)}</b> {html.escape(yoy_str)} &nbsp;·&nbsp; "
+            f"Heat <b>{html.escape(heat)}</b> {hscore if hscore is not None else '—'}/100</p></div>"
         )
 
-    # Trade lines — coalesce filled_avg_price → limit_price for both buys and sells
-    trade_lines = []
-    for trade in trades[:5]:
-        qty = trade.get("filled_quantity") or trade.get("quantity")
-        price = trade.get("filled_avg_price") or trade.get("limit_price")
+    # ── Today's trades ────────────────────────────────────────────────────────
+    def _trade_line(t: dict) -> str:
+        qty = t.get("qty")
+        price = t.get("price")
         price_text = f" @ ${float(price):.2f}" if price else ""
-        trade_lines.append(f"{trade.get('side', '').upper()} {qty} {trade.get('symbol', '')}{price_text}")
+        tag = "CONV" if t.get("portfolio") == "conviction" else "QUANT"
+        return f"[{tag}] {str(t.get('side','')).upper()} {qty} {t.get('symbol','')}{price_text}"
 
-    # ── Plain-text version ───────────────────────────────────────────────────
-    text_parts = [
-        f"Monet Daily Recap — {today_label}",
-        "",
-        f"Portfolio equity : {_fmt_currency(latest_equity)}",
-        f"Daily P&L        : {_fmt_currency(daily_pnl)}",
-        f"Return           : {_fmt_pct(overall_return_pct)}",
-        f"SPY return       : {_fmt_pct(spy_return_pct)}",
-        f"Alpha vs SPY     : {_fmt_pct(alpha_pct)}",
-        "",
-        *lines,
-    ]
-    if trade_lines:
-        text_parts.extend(["", "Today's trades:", *[f"  - {t}" for t in trade_lines]])
-    app_url = os.environ.get("NEXT_APP_URL", "https://monet.app")
-    if recipient_email:
-        unsub_url = f"{app_url}/api/unsubscribe?email={urllib.parse.quote(recipient_email)}"
-    else:
-        unsub_url = f"{app_url}/unsubscribe"
-    text_parts.extend(["", "---", f"Unsubscribe: {unsub_url}"])
-
-    # ── HTML version ─────────────────────────────────────────────────────────
-    html_paragraphs = _markdown_to_html(lines)
-
+    trade_lines = [_trade_line(t) for t in trades[:6]]
     trades_html = ""
     if trade_lines:
-        items = "".join(
-            f"<li style='margin-bottom:4px;'>{html.escape(t)}</li>" for t in trade_lines
-        )
+        items = "".join(f"<li style='margin-bottom:4px;'>{html.escape(t)}</li>" for t in trade_lines)
         trades_html = (
-            "<div style='margin-top:20px;'>"
-            "<p style='margin:0 0 8px 0; font-size:12px; font-weight:600; "
-            "text-transform:uppercase; letter-spacing:0.06em; color:#6b7280;'>Today&rsquo;s trades</p>"
-            f"<ul style='padding-left:20px; margin:0; color:#374151;'>{items}</ul>"
-            "</div>"
+            "<div style='margin-top:18px;'>"
+            "<p style='margin:0 0 8px 0; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.06em; color:#6b7280;'>Today&rsquo;s trades</p>"
+            f"<ul style='padding-left:20px; margin:0; color:#374151; font-size:14px;'>{items}</ul></div>"
         )
 
-    # Metric grid — use <table> for email client compatibility (CSS Grid is not supported)
-    metrics_html = (
-        "<table width='100%' cellpadding='0' cellspacing='0' style='border-collapse:collapse;'>"
-        "<tr>"
-        + _metric_cell("Portfolio equity", _fmt_currency(latest_equity))
-        + _metric_cell("Daily P&L", _fmt_currency(daily_pnl), _val_color(daily_pnl))
-        + "</tr><tr>"
-        + _metric_cell("Return", _fmt_pct(overall_return_pct), _val_color(overall_return_pct))
-        + _metric_cell("Alpha vs SPY", _fmt_pct(alpha_pct), _val_color(alpha_pct))
-        + "</tr></table>"
-    )
+    # ── Short takeaway (trimmed reflection) ───────────────────────────────────
+    reflection_lines = [
+        ln.strip() for ln in ((reflection or {}).get("content") or "").splitlines() if ln.strip()
+    ][:4]
+    takeaway_html = ""
+    if reflection_lines:
+        takeaway_html = (
+            "<div style='margin-top:18px; padding-top:16px; border-top:1px solid #e5e7eb;'>"
+            "<p style='margin:0 0 8px 0; font-size:11px; text-transform:uppercase; letter-spacing:0.06em; color:#6b7280;'>Takeaway</p>"
+            f"{_markdown_to_html(reflection_lines)}</div>"
+        )
 
-    # Benchmark — always rendered; shows "—" when data is unavailable
-    spy_display = _fmt_pct(spy_return_pct) if spy_return_pct is not None else "—"
-    alpha_display = _fmt_pct(alpha_pct) if alpha_pct is not None else "—"
-    benchmark_html = (
-        "<div style='margin-top:20px; padding:16px 18px; border-radius:16px; background:#111827; color:#f9fafb;'>"
-        "<p style='margin:0 0 10px 0; font-size:12px; text-transform:uppercase; "
-        "letter-spacing:0.08em; color:#9ca3af;'>Benchmark</p>"
-        "<table width='100%' cellpadding='0' cellspacing='0'>"
-        "<tr>"
-        f"<td style='color:#9ca3af; font-size:13px;'>SPY return</td>"
-        f"<td style='text-align:right; font-size:15px; font-weight:700; color:#f9fafb;'>"
-        f"{html.escape(spy_display)}</td>"
-        "</tr><tr>"
-        f"<td style='color:#9ca3af; font-size:13px; padding-top:8px;'>Monet alpha</td>"
-        f"<td style='text-align:right; font-size:15px; font-weight:700; padding-top:8px; "
-        f"color:{_val_color(alpha_pct) if alpha_pct is not None else '#9ca3af'};'>"
-        f"{html.escape(alpha_display)}</td>"
-        "</tr></table>"
-        "</div>"
+    # ── Unsubscribe ───────────────────────────────────────────────────────────
+    app_url = os.environ.get("NEXT_APP_URL", "https://monet.app")
+    unsub_url = (
+        f"{app_url}/api/unsubscribe?email={urllib.parse.quote(recipient_email)}"
+        if recipient_email else f"{app_url}/unsubscribe"
     )
-
-    # Unsubscribe footer
     unsubscribe_html = (
-        "<div style='margin-top:28px; padding-top:16px; border-top:1px solid #e5e7eb; text-align:center;'>"
+        "<div style='margin-top:24px; padding-top:16px; border-top:1px solid #e5e7eb; text-align:center;'>"
         "<p style='margin:0; font-size:12px; color:#9ca3af;'>"
-        "You&rsquo;re receiving this because you subscribed to Monet&rsquo;s daily recap.&nbsp;"
-        f"<a href='{unsub_url}' style='color:#6b7280; text-decoration:underline;'>Unsubscribe</a>"
-        "</p></div>"
+        "You&rsquo;re receiving Monet&rsquo;s daily digest.&nbsp;"
+        f"<a href='{unsub_url}' style='color:#6b7280; text-decoration:underline;'>Unsubscribe</a></p></div>"
     )
 
     html_body = (
-        "<div style='font-family:Arial,sans-serif; max-width:680px; margin:0 auto; "
-        "padding:28px 24px; color:#111827; background:#f4f1ea;'>"
+        "<div style='font-family:Arial,sans-serif; max-width:680px; margin:0 auto; padding:28px 24px; color:#111827; background:#f4f1ea;'>"
         "<div style='background:#ffffff; border:1px solid #e7e0d2; border-radius:24px; padding:28px;'>"
-        "<p style='margin:0 0 8px 0; font-size:12px; letter-spacing:0.08em; "
-        "text-transform:uppercase; color:#6b7280;'>Monet daily recap</p>"
-        f"<h1 style='margin:0 0 8px 0; font-size:28px; line-height:1.15; color:#111827;'>"
-        f"Executive summary for {html.escape(today_label)}</h1>"
-        "<p style='margin:0 0 20px 0; color:#6b7280; line-height:1.6;'>"
-        "Your end-of-day investor brief with portfolio performance, benchmark context, "
-        "and today&rsquo;s key takeaways.</p>"
-        f"{metrics_html}"
-        f"{benchmark_html}"
-        "<div style='margin-top:24px; padding-top:22px; border-top:1px solid #e5e7eb;'>"
-        "<p style='margin:0 0 12px 0; font-size:12px; text-transform:uppercase; "
-        "letter-spacing:0.08em; color:#6b7280;'>Today&rsquo;s recap</p>"
-        f"{html_paragraphs}"
+        "<p style='margin:0 0 4px 0; font-size:12px; letter-spacing:0.08em; text-transform:uppercase; color:#6b7280;'>Monet daily digest</p>"
+        f"<h1 style='margin:0 0 16px 0; font-size:24px; line-height:1.15; color:#111827;'>{html.escape(today_label)}</h1>"
+        f"{portfolios_html}"
+        f"{cycle_html}"
         f"{trades_html}"
-        "</div>"
+        f"{takeaway_html}"
         f"{unsubscribe_html}"
         "</div></div>"
     )
+
+    # ── Plain text ────────────────────────────────────────────────────────────
+    text_parts = [f"Monet Daily Digest — {today_label}", ""]
+    for b in books:
+        text_parts.append(
+            f"{b.get('name',''):11} equity {_fmt_currency(b.get('equity'))}  "
+            f"day {_fmt_currency(b.get('daily_pnl'))}  return {_signed(b.get('return_pct'))}  "
+            f"vs SPY {_signed(b.get('alpha_pct')) if b.get('alpha_pct') is not None else '—'}"
+        )
+    if cycle:
+        yoy = cycle.get("hyperscaler_yoy")
+        text_parts += ["", (
+            f"AI Super-Cycle: Cycle {cycle.get('phase_label','—')} {cycle.get('score','—')}/100 · "
+            f"Capex {(cycle.get('capex_direction') or '—').title()} {f'{yoy:+.0f}%' if yoy is not None else 'n/a'} · "
+            f"Heat {(cycle.get('heat_level') or '—').title()} {cycle.get('heat_score','—')}/100"
+        )]
+    if trade_lines:
+        text_parts += ["", "Today's trades:", *[f"  - {t}" for t in trade_lines]]
+    if reflection_lines:
+        text_parts += ["", "Takeaway:", *reflection_lines]
+    text_parts += ["", "---", f"Unsubscribe: {unsub_url}"]
 
     return html_body, "\n".join(text_parts)
 
@@ -3182,59 +3522,84 @@ def send_daily_subscription_emails() -> dict:
 
         trades_result = (
             sb.table("trades")
-            .select("symbol, side, quantity, filled_quantity, filled_avg_price, limit_price, created_at")
+            .select("symbol, side, quantity, filled_quantity, filled_avg_price, limit_price, portfolio, created_at")
             .gte("created_at", f"{today_start}T00:00:00")
             .order("created_at", desc=True)
-            .limit(5)
+            .limit(8)
             .execute()
         )
-        trades = trades_result.data or []
+        trades = [
+            {
+                "portfolio": t.get("portfolio", "quant"),
+                "side": t.get("side"),
+                "symbol": t.get("symbol"),
+                "qty": t.get("filled_quantity") or t.get("quantity"),
+                "price": t.get("filled_avg_price") or t.get("limit_price"),
+            }
+            for t in (trades_result.data or [])
+        ]
 
-        try:
-            portfolio = get_portfolio()
-        except Exception:
-            logger.warning("Failed to load live portfolio for subscription email.")
-            portfolio = None
-
-        perf_result = get_performance_comparison(days=30)
-        performance = None if perf_result.get("error") else perf_result
-
-        # ── Compute metrics aligned with dashboard calculations ────────────────
-        # Dashboard (PerformanceCard + BenchmarkCard) uses a hardcoded $100k
-        # starting equity and live Alpaca equity, so we replicate that here.
+        # ── Per-book metrics (Quant Core + Conviction) ─────────────────────────
+        # Match the dashboard: return = live equity vs $100k inception; SPY/alpha
+        # from each book's own latest equity_snapshot.
         _STARTING_EQUITY = 100_000
-        current_equity = portfolio.get("equity") if portfolio else None
-        overall_return_pct: float | None = (
-            round(((current_equity - _STARTING_EQUITY) / _STARTING_EQUITY) * 100, 2)
-            if current_equity
-            else None
-        )
-        # SPY return comes from equity_snapshots (inception-to-date).
-        spy_return_pct: float | None = (
-            performance.get("cumulative_spy_return") if performance else None
-        )
-        # Alpha: live portfolio return minus SPY (don't rely on stored alpha
-        # which is NULL when deployed_pct ≤ 50% — dashboard always computes it).
-        alpha_pct: float | None = (
-            round(overall_return_pct - spy_return_pct, 2)
-            if (overall_return_pct is not None and spy_return_pct is not None)
-            else None
-        )
 
-        subject = f"Monet Daily Recap - {today_label}"
+        def _book_metrics(name: str, slug: str) -> dict:
+            try:
+                p = get_portfolio(slug)
+            except Exception:
+                logger.warning("Failed to load %s portfolio for daily email.", slug)
+                return {"name": name, "equity": None, "daily_pnl": None, "return_pct": None, "spy_pct": None, "alpha_pct": None}
+            eq = p.get("equity")
+            ret = round((eq - _STARTING_EQUITY) / _STARTING_EQUITY * 100, 2) if eq else None
+            spy = None
+            try:
+                snaps = get_equity_snapshots(days=1, portfolio=slug)
+                if snaps:
+                    spy = snaps[0].get("spy_cumulative_return")
+            except Exception:
+                pass
+            alpha = round(ret - spy, 2) if (ret is not None and spy is not None) else None
+            return {"name": name, "equity": eq, "daily_pnl": p.get("daily_pnl"), "return_pct": ret, "spy_pct": spy, "alpha_pct": alpha}
+
+        books = [_book_metrics("Quant Core", "quant"), _book_metrics("Conviction", "conviction")]
+
+        # ── AI super-cycle headline (from memory) ──────────────────────────────
+        def _read_mem(key: str) -> dict:
+            try:
+                r = sb.table("agent_memory").select("value").eq("key", key).maybe_single().execute()
+                return (r.data or {}).get("value", {}) if r and r.data else {}
+            except Exception:
+                return {}
+
+        dur, cap, bub = _read_mem("ai_cycle_durability"), _read_mem("ai_capex_tracker"), _read_mem("ai_bubble_risk")
+        cycle = None
+        if dur or cap or bub:
+            cycle = {
+                "phase_label": dur.get("phase_label"),
+                "score": dur.get("score"),
+                "capex_direction": cap.get("guidance_direction"),
+                "hyperscaler_yoy": cap.get("hyperscaler_total_yoy"),
+                "heat_level": bub.get("level"),
+                "heat_score": bub.get("score"),
+            }
+
+        email_data = {
+            "today_label": today_label,
+            "books": books,
+            "cycle": cycle,
+            "trades": trades,
+            "reflection": reflection,
+        }
+
+        subject = f"Monet Daily Digest - {today_label}"
         sent_ids: list[str] = []
 
         with httpx.Client(timeout=20.0) as client:
             for subscription in due_subscriptions:
                 # Build per-subscriber HTML so the unsubscribe link is personalised.
                 html_body, text_body = _build_subscription_email(
-                    today_label,
-                    reflection,
-                    trades,
-                    portfolio,
-                    overall_return_pct,
-                    spy_return_pct,
-                    alpha_pct,
+                    email_data,
                     recipient_email=subscription["email"],
                 )
                 response = client.post(
@@ -3449,6 +3814,7 @@ def attach_bracket_to_position(
     quantity: float,
     stop_loss_price: float,
     take_profit_price: float | None = None,
+    portfolio: str = "quant",
 ) -> dict:
     """Attach protective stop-loss and take-profit orders to an existing position.
 
@@ -3464,11 +3830,12 @@ def attach_bracket_to_position(
         quantity: Number of shares to protect (usually full position size).
         stop_loss_price: Stop price — triggers a market sell if hit.
         take_profit_price: Limit price for take-profit leg. If None, places stop-only.
+        portfolio: Which book the position belongs to — "quant" (default) or "conviction".
 
     Returns:
         Dict with order details.
     """
-    client = get_trading_client()
+    client = get_trading_client(portfolio)
 
     if take_profit_price is not None:
         # OCO: stop-loss + take-profit
@@ -3507,6 +3874,7 @@ def attach_bracket_to_position(
         stop_loss_price=stop_loss_price,
         order_class=order_class_str,
         thesis=f"Protective order: SL={stop_loss_price}" + (f", TP={take_profit_price}" if take_profit_price else ""),
+        portfolio=portfolio,
     )
     update_trade(trade["id"], {
         "broker_order_id": str(order.id),
@@ -3528,18 +3896,19 @@ def attach_bracket_to_position(
 # Performance Tracking tools
 # ============================================================
 
-def record_daily_snapshot() -> dict:
+def record_daily_snapshot(portfolio: str = "quant") -> dict:
     """Record today's portfolio equity and SPY close for benchmark tracking.
 
-    Call this during EOD reflection (4 PM ET) to log a daily data point.
-    Cumulative returns vs SPY are auto-computed from the first snapshot (inception).
+    Call this during EOD reflection (4 PM ET) to log a daily data point. Each book
+    ("quant" = Quant Core, "conviction" = Conviction) records its own equity curve;
+    cumulative returns vs SPY are auto-computed from that book's first snapshot.
 
     Returns:
         Dict with today's snapshot including portfolio return, SPY return, and alpha.
     """
-    portfolio = get_portfolio()
-    equity = float(portfolio.get("equity", 0))
-    cash = float(portfolio.get("cash", 0))
+    portfolio_state = get_portfolio(portfolio)
+    equity = float(portfolio_state.get("equity", 0))
+    cash = float(portfolio_state.get("cash", 0))
 
     # Use yfinance for SPY close — Alpaca quotes return 0 bid/ask at market close
     try:
@@ -3557,7 +3926,7 @@ def record_daily_snapshot() -> dict:
         spy_close = round((bid + ask) / 2, 2) if bid and ask else 0.0
 
     today = datetime.now().strftime("%Y-%m-%d")
-    snapshot = db_record_equity_snapshot(today, equity, cash, spy_close)
+    snapshot = db_record_equity_snapshot(today, equity, cash, spy_close, portfolio=portfolio)
 
     return {
         "date": today,
@@ -3855,9 +4224,10 @@ def score_universe(top_n: int = 30) -> dict:
     if not tickers:
         return {"error": "Could not fetch ticker universe", "rankings": []}
 
-    # Step 1: Bulk download 1Y of daily closes
+    # Step 1: Bulk download 1Y of daily closes (auto_adjust=True → split/dividend
+    # adjusted, so events like KLAC's 10:1 split don't read as a 90% crash).
     try:
-        price_data = yf.download(tickers, period="1y", progress=False, threads=True)
+        price_data = yf.download(tickers, period="1y", progress=False, threads=True, auto_adjust=True)
     except Exception as e:
         return {"error": f"Price download failed: {e}", "rankings": []}
 
@@ -4597,6 +4967,11 @@ AUTONOMOUS_TOOLS = [
     assess_ai_bubble_risk,
     # AI cycle durability
     assess_ai_cycle_durability,
+    # AI super-cycle: automated capex trend + daily history snapshot
+    compute_ai_capex_trend,
+    record_ai_cycle_snapshot,
+    # Conviction portfolio: concentrated cyclical sizing
+    size_cycle_position,
     send_weekly_cycle_report,
     # Tier 1 strategy health monitoring
     audit_factor_ic,

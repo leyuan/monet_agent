@@ -29,11 +29,13 @@ export function PerformanceCard() {
         supabase
           .from("trades")
           .select("id", { count: "exact", head: true })
+          .eq("portfolio", "quant")
           .in("status", ["filled", "OrderStatus.FILLED", "OrderStatus.PARTIALLY_FILLED"]),
         fetch("/api/portfolio").then((r) => r.ok ? r.json() : null).catch(() => null),
         supabase
           .from("equity_snapshots")
           .select("snapshot_date")
+          .eq("portfolio", "quant")
           .order("snapshot_date", { ascending: true })
           .limit(1)
           .maybeSingle(),

@@ -1,0 +1,105 @@
+# Conviction Loop
+
+The **Conviction** portfolio is a concentrated, cyclical capex-cycle book — the
+opposite of Quant Core's diversified factor strategy. It holds **1-3 AI-infra
+cyclicals** (MU, WDC, SNDK, STX), enters when the AI capex super-cycle is
+inflecting/accelerating, **rides the trend**, and **exits hard** when capex or
+pricing rolls over. Cyclicals round-trip — the sell discipline IS the edge.
+
+ALL Conviction trades use `portfolio="conviction"` and
+`risk_overrides=CONVICTION_RISK_OVERRIDES` (concentration is intentional here).
+
+Run every step in order. This loop runs once per weekday.
+
+---
+
+## Step 0 — Reconcile + load state
+
+1. `reconcile_positions(portfolio="conviction")` — catch any bracket fills since last run.
+2. `get_portfolio("conviction")` — current Conviction positions, equity, cash.
+3. Read memory: `ai_cycle_durability`, `ai_capex_tracker`, and the latest two
+   `ai_cycle_snapshots` rows (query the table) — you need the prior snapshot to
+   judge whether memory demand is rising or falling.
+
+---
+
+## Step 1 — HARD EXIT CHECK (do this BEFORE any entry)
+
+Exits protect the book. Evaluate these every run, in order. If ANY fires for a
+held name, **sell the full position** (`place_order(symbol, "sell", qty,
+portfolio="conviction")`) and journal why. Do not rationalize holding through a
+confirmed rollover.
+
+- **Capex rollover** — `ai_capex_tracker.guidance_direction == "decelerating"`
+  OR `hyperscaler_total_yoy` turned negative → exit ALL Conviction positions.
+- **Cycle cooling** — `ai_cycle_durability.phase == "cooling"` OR `score < 40` → exit.
+- **Memory-demand rollover** — the durability `memory_demand.vs_spy_pct` has gone
+  negative AND fallen across the last 2 `ai_cycle_snapshots` → exit memory names.
+- **Stop already hit** — reconcile in Step 0 will have recorded any bracket stop
+  fill; confirm the position is flat and note the loss.
+
+If a hard exit fires, you may stop here for that name (no re-entry same week).
+
+---
+
+## Step 2 — ENTRY GATE (only if no exit fired and you have room)
+
+Conviction holds at most 3 names. If already at 3, skip to Step 4. Otherwise,
+ALL of these must be true to open or add a position:
+
+1. **Cycle healthy** — `ai_cycle_durability.phase` is `full_build` or `expanding`,
+   AND `score >= 60`.
+   - ⚠️ If durability is `maturing`/`cooling`, do NOT enter on price signals alone.
+     BUT note the known limitation: durability is price-momentum-based and lags the
+     fundamentals. If durability is `maturing` ONLY because its capex sub-signal was
+     stale ("Pending"), and the capex gate below is strongly accelerating, you may
+     treat the cycle as healthy — say so explicitly in the journal.
+2. **Capex accelerating** — `ai_capex_tracker.guidance_direction == "accelerating"`
+   (or `"stable"` with forward guidance raising). This is the PRIMARY gate — real
+   spend is the thesis.
+3. **Memory-demand inflecting** — `memory_demand.vs_spy_pct > 0` and rising vs the
+   prior `ai_cycle_snapshots` row.
+
+If the gate passes, read 2-3 recent headlines via `internet_search` on DRAM/HBM/NAND
+pricing and the specific name to confirm nothing has broken (a guidance cut, a
+fab issue). One qualitative sanity check — then proceed.
+
+---
+
+## Step 3 — SELECT, SIZE, EXECUTE
+
+1. **Select**: among `MU, WDC, SNDK, STX` not already held, pick the top 1-2 by
+   3-month momentum (use `get_historical_bars`/`technical_analysis`). MU is the
+   bellwether — prefer it unless a clear reason not to.
+2. **Conviction tier**: `high` (40% of book) only when the cycle is `full_build`
+   AND capex accelerating AND the name is the clear leader; `medium` (30%) for a
+   solid setup; `starter` (20%) when you want exposure but the signal is early.
+3. **Size**: `size_cycle_position(symbol, conviction="<tier>")`. It returns
+   `quantity`, `stop_loss_price`, `take_profit_price`, and `risk_overrides`.
+4. **Execute**:
+   ```
+   place_order(
+       symbol, "buy", <quantity>,
+       take_profit_price=<tp>, stop_loss_price=<sl>,
+       thesis="<capex-cycle thesis + the gate readings>",
+       portfolio="conviction",
+       risk_overrides=CONVICTION_RISK_OVERRIDES,
+   )
+   ```
+   The wide ATR stop is the safety net; the bracket TP keeps the order valid.
+
+Keep total Conviction names ≤ 3. Do not diversify for its own sake — concentration
+is the point. One or two high-conviction names beats five half-convictions here.
+
+---
+
+## Step 4 — Trail winners + record
+
+- For any winner up materially since entry, ratchet the stop UP toward breakeven
+  or better with `attach_bracket_to_position(symbol, qty, stop_loss_price=<higher>,
+  portfolio="conviction")`. Let the position run; just protect gains.
+- `record_daily_snapshot(portfolio="conviction")` — log the Conviction equity curve.
+- Write a journal entry (`entry_type="trade"`, `run_source="conviction_loop"`):
+  the gate readings (cycle phase/score, capex direction + YoY, memory demand),
+  what you did and why, and current Conviction holdings with unrealized P&L. Be
+  honest about cycle position — this book lives or dies on exit discipline.

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { BarChart3, Bot, BookOpen, Activity, LogOut, User, Library, FlaskConical } from "lucide-react";
+import { BarChart3, Bot, BookOpen, Activity, LogOut, User, Library, FlaskConical, Cpu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
@@ -12,6 +12,7 @@ import { SubscribeModal } from "@/components/subscription/subscribe-modal";
 const navItems = [
   { href: "/about", label: "About Me", icon: User },
   { href: "/dashboard", label: "Dashboard", icon: BarChart3 },
+  { href: "/ai-cycle", label: "AI Cycle", icon: Cpu },
   { href: "/stocks", label: "Stocks", icon: Library },
   { href: "/chat", label: "Chat", icon: Bot },
   { href: "/journal", label: "Journal", icon: BookOpen },

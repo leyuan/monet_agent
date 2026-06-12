@@ -9,14 +9,30 @@ from stock_agent.market_data import get_portfolio, get_quote
 logger = logging.getLogger(__name__)
 
 
-def check_risk(symbol: str, side: str, quantity: float, limit_price: float | None = None) -> dict:
+def check_risk(
+    symbol: str,
+    side: str,
+    quantity: float,
+    limit_price: float | None = None,
+    portfolio: str = "quant",
+    risk_overrides: dict | None = None,
+) -> dict:
     """Validate a proposed trade against risk rules.
+
+    portfolio: which book to check against ("quant" = Quant Core, "conviction" =
+        Conviction). Risk metrics (position size, exposure, daily loss, cash) are
+        read from that portfolio's own Alpaca account.
+    risk_overrides: optional dict merged over the default risk_settings — used by
+        the concentrated Conviction book (e.g. {"max_position_pct": 40,
+        "max_total_exposure_pct": 95}) to relax the diversified-book limits.
 
     Returns:
         Dict with 'approved' bool, 'reason' if rejected, and risk metrics.
     """
     settings = get_risk_settings()
-    portfolio = get_portfolio()
+    if risk_overrides:
+        settings = {**settings, **risk_overrides}
+    portfolio = get_portfolio(portfolio)
 
     equity = portfolio["equity"]
     if equity <= 0:

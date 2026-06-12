@@ -109,8 +109,13 @@ def create_trade(
     stop_loss_price: float | None = None,
     order_class: str = "simple",
     parent_order_id: str | None = None,
+    portfolio: str = "quant",
 ) -> dict:
-    """Record a trade."""
+    """Record a trade.
+
+    portfolio: which book the trade belongs to ("quant" = Quant Core systematic
+    strategy, "conviction" = concentrated cyclical book). Defaults to "quant".
+    """
     sb = get_supabase()
     row: dict = {
         "symbol": symbol,
@@ -121,6 +126,7 @@ def create_trade(
         "confidence": confidence,
         "journal_id": journal_id,
         "order_class": order_class,
+        "portfolio": portfolio,
     }
     if limit_price is not None:
         row["limit_price"] = limit_price
@@ -141,12 +147,18 @@ def update_trade(trade_id: str, updates: dict) -> dict:
     return result.data[0]
 
 
-def get_trades(limit: int = 20, symbol: str | None = None) -> list[dict]:
-    """Get recent trades."""
+def get_trades(
+    limit: int = 20,
+    symbol: str | None = None,
+    portfolio: str | None = None,
+) -> list[dict]:
+    """Get recent trades, optionally filtered by symbol and/or portfolio."""
     sb = get_supabase()
     query = sb.table("trades").select("*").order("created_at", desc=True).limit(limit)
     if symbol:
         query = query.eq("symbol", symbol)
+    if portfolio:
+        query = query.eq("portfolio", portfolio)
     result = query.execute()
     return result.data
 
@@ -193,18 +205,24 @@ def record_equity_snapshot(
     portfolio_equity: float,
     portfolio_cash: float,
     spy_close: float,
+    portfolio: str = "quant",
 ) -> dict:
     """Record a daily equity snapshot for benchmark tracking.
+
+    Each portfolio ("quant" = Quant Core, "conviction" = Conviction) keeps its
+    own equity curve. Cumulative returns are computed from that portfolio's own
+    inception snapshot.
 
     Alpha is only meaningful when >50% of portfolio is deployed.
     When mostly cash, alpha is stored as None to avoid misleading numbers.
     """
     sb = get_supabase()
 
-    # Get inception snapshot to compute cumulative returns
+    # Get this portfolio's inception snapshot to compute cumulative returns
     first = (
         sb.table("equity_snapshots")
         .select("portfolio_equity, spy_close")
+        .eq("portfolio", portfolio)
         .order("snapshot_date")
         .limit(1)
         .execute()
@@ -230,6 +248,7 @@ def record_equity_snapshot(
     result = (
         sb.table("equity_snapshots")
         .upsert({
+            "portfolio": portfolio,
             "snapshot_date": snapshot_date,
             "portfolio_equity": portfolio_equity,
             "portfolio_cash": portfolio_cash,
@@ -238,19 +257,20 @@ def record_equity_snapshot(
             "spy_cumulative_return": spy_return,
             "alpha": alpha,
             "deployed_pct": deployed_pct,
-        }, on_conflict="snapshot_date")
+        }, on_conflict="portfolio,snapshot_date")
         .execute()
     )
     return result.data[0]
 
 
-def get_equity_snapshots(days: int = 30) -> list[dict]:
-    """Get recent equity snapshots."""
+def get_equity_snapshots(days: int = 30, portfolio: str = "quant") -> list[dict]:
+    """Get recent equity snapshots for a portfolio (default Quant Core)."""
     try:
         sb = get_supabase()
         result = (
             sb.table("equity_snapshots")
             .select("*")
+            .eq("portfolio", portfolio)
             .order("snapshot_date", desc=True)
             .limit(days)
             .execute()

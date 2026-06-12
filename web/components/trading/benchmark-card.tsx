@@ -28,6 +28,7 @@ export function BenchmarkCard() {
         supabase
           .from("equity_snapshots")
           .select("snapshot_date, portfolio_cumulative_return, spy_cumulative_return, alpha, deployed_pct")
+          .eq("portfolio", "quant")
           .order("snapshot_date", { ascending: true })
           .limit(90),
         fetch("/api/portfolio").then((r) => r.ok ? r.json() : null).catch(() => null),
