@@ -19,12 +19,13 @@ const STARTING_EQUITY = 100_000;
 export function BenchmarkCard() {
   const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
   const [liveReturnPct, setLiveReturnPct] = useState<number | null>(null);
+  const [adjustment, setAdjustment] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
       const supabase = createClient();
-      const [snapshotRes, portfolioRes] = await Promise.all([
+      const [snapshotRes, portfolioRes, adjRes] = await Promise.all([
         supabase
           .from("equity_snapshots")
           .select("snapshot_date, portfolio_cumulative_return, spy_cumulative_return, alpha, deployed_pct")
@@ -32,12 +33,18 @@ export function BenchmarkCard() {
           .order("snapshot_date", { ascending: true })
           .limit(90),
         fetch("/api/portfolio").then((r) => r.ok ? r.json() : null).catch(() => null),
+        supabase.from("agent_memory").select("value").eq("key", "performance_adjustments").maybeSingle(),
       ]);
 
       setSnapshots((snapshotRes.data as Snapshot[] | null) ?? []);
 
+      // One-time corporate-action corrections (e.g. a broker split artifact) added
+      // back so alpha reflects the strategy, not the simulator bug. Disclosed below.
+      const adj = Number((adjRes.data?.value as { total?: number } | undefined)?.total ?? 0);
+      setAdjustment(adj);
+
       if (portfolioRes?.account?.equity) {
-        const equity = parseFloat(portfolioRes.account.equity);
+        const equity = parseFloat(portfolioRes.account.equity) + adj;
         if (equity > 0) {
           setLiveReturnPct(((equity - STARTING_EQUITY) / STARTING_EQUITY) * 100);
         }
@@ -103,6 +110,12 @@ export function BenchmarkCard() {
           <span>Portfolio: <span className={cn("font-medium", portfolioReturn >= 0 ? "text-green-600" : "text-red-500")}>{portfolioReturn >= 0 ? "+" : ""}{portfolioReturn.toFixed(2)}%</span></span>
           <span>SPY: <span className={cn("font-medium", spyReturn >= 0 ? "text-green-600" : "text-red-500")}>{spyReturn >= 0 ? "+" : ""}{spyReturn.toFixed(2)}%</span></span>
         </div>
+
+        {adjustment > 0 && (
+          <p className="text-[11px] text-muted-foreground/70 mt-1 text-center">
+            incl. +${(adjustment / 1000).toFixed(1)}k one-time KLAC split-artifact correction
+          </p>
+        )}
       </CardContent>
     </Card>
   );
