@@ -45,8 +45,12 @@ export function PerformanceCard() {
 
       const acct = portfolioRes?.account;
       // One-time corporate-action corrections (e.g. a broker split artifact) added
-      // back so return reflects the strategy, not the simulator bug. Disclosed in UI.
-      const adjustment = Number((adjRes.data?.value as { total?: number } | undefined)?.total ?? 0);
+      // back so return reflects the strategy, not the simulator bug. This card is
+      // Quant Core, so sum only quant adjustments. Disclosed in UI.
+      const adjList = (adjRes.data?.value as { adjustments?: { amount?: number; portfolio?: string }[] } | undefined)?.adjustments ?? [];
+      const adjustment = adjList
+        .filter((a) => (a.portfolio ?? "quant") === "quant")
+        .reduce((s, a) => s + Number(a.amount ?? 0), 0);
       const currentEquity = acct?.equity ? parseFloat(acct.equity) + adjustment : 0;
       const dailyPnl = acct?.equity && acct?.last_equity
         ? parseFloat(acct.equity) - parseFloat(acct.last_equity)

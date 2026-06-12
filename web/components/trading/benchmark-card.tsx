@@ -39,8 +39,12 @@ export function BenchmarkCard() {
       setSnapshots((snapshotRes.data as Snapshot[] | null) ?? []);
 
       // One-time corporate-action corrections (e.g. a broker split artifact) added
-      // back so alpha reflects the strategy, not the simulator bug. Disclosed below.
-      const adj = Number((adjRes.data?.value as { total?: number } | undefined)?.total ?? 0);
+      // back so alpha reflects the strategy, not the simulator bug. Quant Core card,
+      // so sum only quant adjustments. Disclosed below.
+      const adjList = (adjRes.data?.value as { adjustments?: { amount?: number; portfolio?: string }[] } | undefined)?.adjustments ?? [];
+      const adj = adjList
+        .filter((a) => (a.portfolio ?? "quant") === "quant")
+        .reduce((s, a) => s + Number(a.amount ?? 0), 0);
       setAdjustment(adj);
 
       if (portfolioRes?.account?.equity) {

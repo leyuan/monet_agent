@@ -28,31 +28,55 @@ interface PortfolioData {
 
 const STARTING_EQUITY = 100_000;
 
-export function PortfolioSummary({ data }: { data: PortfolioData }) {
+/**
+ * adjustment: cumulative one-time corporate-action correction for THIS portfolio
+ *   (e.g. a broker split artifact) — applied to Portfolio Value & Realized P&L.
+ * todayAdjustment: the portion dated today — applied to Daily P&L only (the
+ *   artifact only distorts the day it occurred).
+ */
+export function PortfolioSummary({
+  data,
+  adjustment = 0,
+  todayAdjustment = 0,
+}: {
+  data: PortfolioData;
+  adjustment?: number;
+  todayAdjustment?: number;
+}) {
   const { account, positions } = data;
   const unrealizedPl = positions.reduce((sum, p) => sum + p.unrealized_pl, 0);
-  const totalPl = account.equity - STARTING_EQUITY;
-  const realizedPl = totalPl - unrealizedPl;
+  const portfolioValue = account.equity + adjustment;
+  const totalPl = portfolioValue - STARTING_EQUITY;
+  const realizedPl = totalPl - unrealizedPl; // artifact lives in realized, not unrealized
+  const dailyPnl = account.daily_pnl + todayAdjustment;
 
   return (
-    <div className="grid gap-4 md:grid-cols-5">
-      <StatCard label="Portfolio Value" value={fmt(account.equity)} />
-      <StatCard label="Cash" value={fmt(account.cash)} />
-      <StatCard
-        label="Unrealized P&L"
-        value={fmt(unrealizedPl)}
-        className={unrealizedPl >= 0 ? "text-green-600" : "text-red-500"}
-      />
-      <StatCard
-        label="Realized P&L"
-        value={fmt(realizedPl)}
-        className={realizedPl >= 0 ? "text-green-600" : "text-red-500"}
-      />
-      <StatCard
-        label="Daily P&L"
-        value={fmt(account.daily_pnl)}
-        className={account.daily_pnl >= 0 ? "text-green-600" : "text-red-500"}
-      />
+    <div className="space-y-1.5">
+      <div className="grid gap-4 md:grid-cols-5">
+        <StatCard label="Portfolio Value" value={fmt(portfolioValue)} />
+        <StatCard label="Cash" value={fmt(account.cash)} />
+        <StatCard
+          label="Unrealized P&L"
+          value={fmt(unrealizedPl)}
+          className={unrealizedPl >= 0 ? "text-green-600" : "text-red-500"}
+        />
+        <StatCard
+          label="Realized P&L"
+          value={fmt(realizedPl)}
+          className={realizedPl >= 0 ? "text-green-600" : "text-red-500"}
+        />
+        <StatCard
+          label="Daily P&L"
+          value={fmt(dailyPnl)}
+          className={dailyPnl >= 0 ? "text-green-600" : "text-red-500"}
+        />
+      </div>
+      {adjustment !== 0 && (
+        <p className="text-[11px] text-muted-foreground/70">
+          Portfolio Value, Realized{todayAdjustment !== 0 ? " & Daily" : ""} P&L include a{" "}
+          {adjustment > 0 ? "+" : "−"}${(Math.abs(adjustment) / 1000).toFixed(1)}k one-time KLAC split-artifact correction.
+        </p>
+      )}
     </div>
   );
 }
