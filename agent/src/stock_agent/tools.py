@@ -1611,6 +1611,152 @@ def get_portfolio_state() -> dict:
     return get_portfolio()
 
 
+def _recent_split(symbol: str, ref_date_str: str, window_days: int = 4) -> float | None:
+    """Return the split ratio if `symbol` split within ±window_days of ref_date, else None.
+
+    Used to recognize when a 'stop fill' is actually a stock-split artifact: a paper
+    broker can adjust a position's price for a split without multiplying the share
+    count, making a held position look like it crashed ~1/ratio and tripping the stop.
+    """
+    try:
+        sp = yf.Ticker(symbol).splits
+        if sp is None or len(sp) == 0:
+            return None
+        ref = datetime.strptime(ref_date_str[:10], "%Y-%m-%d").date()
+        for dt, ratio in sp.items():
+            d = dt.date() if hasattr(dt, "date") else dt
+            if ratio and ratio != 1 and abs((d - ref).days) <= window_days:
+                return float(ratio)
+    except Exception:
+        return None
+    return None
+
+
+def _splits_in_window(symbol: str, window_days: int) -> list[tuple[str, float]]:
+    """List of (date_str, ratio) for `symbol` splits within the last window_days."""
+    try:
+        sp = yf.Ticker(symbol).splits
+        if sp is None or len(sp) == 0:
+            return []
+        cutoff = (datetime.now() - timedelta(days=window_days)).date()
+        out = []
+        for dt, ratio in sp.items():
+            d = dt.date() if hasattr(dt, "date") else dt
+            if d >= cutoff and ratio and ratio != 1:
+                out.append((d.isoformat(), float(ratio)))
+        return out
+    except Exception:
+        return []
+
+
+def adjust_for_corporate_actions(window_days: int = 14) -> dict:
+    """Daily corporate-actions hygiene — keep stored prices consistent across splits.
+
+    Run at the START of the factor loop. Two jobs:
+
+    1. **Stored targets** — for each `stock:*` and `watchlist` symbol that split in the
+       last `window_days`, divide the stored target_entry/target_exit by the split
+       ratio so price comparisons (alerts, decision gates) aren't off by ~the ratio
+       (e.g. a 10:1 split making a $217 stock read as 90% below a $2173 target).
+
+    2. **Held positions** — if a held name split in the window, flag it so its broker
+       stop can be re-checked. (A phantom stop fill is handled by the split-artifact
+       guard in reconcile_positions; this flags it proactively.)
+
+    Idempotent: each `SYMBOL:date` split is applied once, tracked in the
+    `splits_processed` memory key, so repeated daily runs never double-adjust.
+
+    Returns a summary of adjustments + flags.
+    """
+    sb = get_supabase()
+    pr = read_memory("splits_processed")
+    processed: set[str] = set((pr or {}).get("value", {}).get("keys", [])) if pr else set()
+    newly_processed: set[str] = set()
+    adjusted: list[dict] = []
+    flags: list[dict] = []
+
+    def _pending_splits(symbol: str) -> list[tuple[str, float]]:
+        return [(d, r) for (d, r) in _splits_in_window(symbol, window_days) if f"{symbol}:{d}" not in processed]
+
+    # ── 1a. stock:* memory targets ──
+    try:
+        stock_rows = sb.table("agent_memory").select("key,value").like("key", "stock:%").execute().data or []
+    except Exception:
+        stock_rows = []
+    for row in stock_rows:
+        val = row.get("value") or {}
+        sym = val.get("symbol") or row["key"].split(":", 1)[-1]
+        pending = _pending_splits(sym)
+        if not pending:
+            continue
+        ratio = 1.0
+        for d, r in pending:
+            ratio *= r
+            newly_processed.add(f"{sym}:{d}")
+        new_val = dict(val)
+        for f in ("target_entry", "target_exit"):
+            if isinstance(val.get(f), (int, float)):
+                new_val[f] = round(val[f] / ratio, 2)
+        new_val["thesis"] = (new_val.get("thesis") or "") + f" [auto-adjusted for {ratio:g}:1 split]"
+        try:
+            db_write_memory(row["key"], new_val)
+            adjusted.append({"symbol": sym, "ratio": ratio, "source": "stock_memory"})
+        except Exception:
+            pass
+
+    # ── 1b. watchlist targets ──
+    try:
+        wl = sb.table("watchlist").select("id,symbol,target_entry,target_exit").execute().data or []
+    except Exception:
+        wl = []
+    for w in wl:
+        pending = _pending_splits(w["symbol"])
+        if not pending:
+            continue
+        ratio = 1.0
+        for d, r in pending:
+            ratio *= r
+            newly_processed.add(f"{w['symbol']}:{d}")
+        updates = {f: round(w[f] / ratio, 2) for f in ("target_entry", "target_exit") if isinstance(w.get(f), (int, float))}
+        if updates:
+            try:
+                sb.table("watchlist").update(updates).eq("id", w["id"]).execute()
+                adjusted.append({"symbol": w["symbol"], "ratio": ratio, "source": "watchlist"})
+            except Exception:
+                pass
+
+    # ── 2. Held positions that split recently (informational flag) ──
+    for slug in ("quant", "conviction"):
+        try:
+            positions = get_portfolio(slug).get("positions", [])
+        except Exception:
+            positions = []
+        for pos in positions:
+            for d, r in _splits_in_window(pos["symbol"], window_days):
+                flags.append({
+                    "symbol": pos["symbol"], "portfolio": slug, "ratio": r, "date": d,
+                    "note": "Held name split recently — verify its protective stop is split-adjusted.",
+                })
+
+    # Persist the processed set so future runs don't re-adjust
+    if newly_processed:
+        all_keys = sorted(processed | newly_processed)[-500:]  # cap growth
+        try:
+            db_write_memory("splits_processed", {"keys": all_keys})
+        except Exception:
+            pass
+
+    return {
+        "status": "ok",
+        "adjusted_targets": adjusted,
+        "split_flags": flags,
+        "message": (
+            f"Adjusted {len(adjusted)} stored target(s) for splits; "
+            f"{len(flags)} held position(s) flagged for stop review."
+        ),
+    }
+
+
 def reconcile_positions(portfolio: str = "quant") -> dict:
     """Reconcile Alpaca positions against trades table to detect bracket stop-loss/take-profit fills.
 
@@ -1719,13 +1865,35 @@ def reconcile_positions(portfolio: str = "quant") -> dict:
 
                 pnl = (fill_price - entry_price) * fill_qty if entry_price > 0 else None
 
+                # Split-artifact guard: if `sym` split right around this fill, the
+                # paper broker likely mishandled the split (adjusted price but not
+                # share count), tripping the stop on a phantom ~1/ratio drop. Record
+                # the exit (the account is real) but DON'T treat it as a genuine stop.
+                fill_date = datetime.now().strftime("%Y-%m-%d")
+                try:
+                    if fill_order.filled_at:
+                        fill_date = fill_order.filled_at.date().isoformat()
+                except Exception:
+                    pass
+                split_ratio = _recent_split(sym, fill_date)
+                is_split_artifact = bool(split_ratio) and exit_type == "stop_loss"
+
+                exit_label = "split_artifact" if is_split_artifact else exit_type
+                exit_thesis = (
+                    f"SPLIT ARTIFACT ({split_ratio:g}:1) — paper broker mishandled {sym}'s "
+                    f"split; the stop fired on a phantom drop, not a real stop. Sold {fill_qty} "
+                    f"@ ${fill_price:.2f}. Re-entry NOT blocked."
+                    if is_split_artifact
+                    else f"Bracket {exit_type} executed by Alpaca at ${fill_price:.2f}"
+                )
+
                 # Record the exit trade
                 exit_trade = create_trade(
                     symbol=sym,
                     side="sell",
                     quantity=fill_qty,
                     order_type="market",
-                    thesis=f"Bracket {exit_type} executed by Alpaca at ${fill_price:.2f}",
+                    thesis=exit_thesis,
                     order_class="bracket_fill",
                     portfolio=portfolio,
                 )
@@ -1752,7 +1920,9 @@ def reconcile_positions(portfolio: str = "quant") -> dict:
 
                 reconciled.append({
                     "symbol": sym,
-                    "exit_type": exit_type,
+                    "exit_type": exit_label,
+                    "split_artifact": is_split_artifact,
+                    "split_ratio": split_ratio,
                     "fill_price": fill_price,
                     "fill_qty": fill_qty,
                     "entry_price": entry_price,
@@ -1760,8 +1930,9 @@ def reconcile_positions(portfolio: str = "quant") -> dict:
                     "alpaca_order_id": str(fill_order.id),
                 })
 
-                # Save exit context for re-entry guard (stop-losses only)
-                if exit_type == "stop_loss":
+                # Save exit context for re-entry guard (genuine stop-losses only —
+                # never block re-entry when the "stop" was a split artifact).
+                if exit_type == "stop_loss" and not is_split_artifact:
                     regime_data = read_memory("market_regime")
                     regime_snapshot = {}
                     if regime_data and regime_data.get("value"):
@@ -4944,6 +5115,7 @@ AUTONOMOUS_TOOLS = [
     manage_watchlist,
     get_portfolio_state,
     reconcile_positions,
+    adjust_for_corporate_actions,
     check_trade_risk,
     query_database,
     send_daily_recap,

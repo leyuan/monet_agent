@@ -68,7 +68,16 @@ Ongoing checklist of features/behaviors to verify after deployment. When reviewi
 **Issue**: KLAC executed a 10:1 split 2026-06-12. `stock:KLAC` memory held pre-split target_entry $2173.53 / target_exit $2595.85 (set Jun 11) → live ~$247 read as a phantom ~90% gap. **Fixed Jun 12**: targets corrected to $217.35 / $259.59, thesis stamped. Scanned all ~40 stored symbols — only KLAC split since Apr 1, no other stale records.
 **Hardening**: added explicit `auto_adjust=True` to the 5 `yf.download` return/momentum calls (tools.py:204,496,616,899,4201) + `market_data.get_historical_bars` — previously relied on yfinance's version-dependent default. Verified KLAC 1y return computes correctly (+185%, not −90%).
 - [ ] Next factor loop: KLAC momentum/score is sane (no split artifact); re-analysis overwrites stock:KLAC with fresh adjusted targets
-- [ ] **SYSTEMIC GAP (not yet built)**: no general corporate-actions handling. Any future split leaves stored absolute prices (stock:* targets, watchlist targets, open trade stop/TP) stale by the split ratio until re-analysis. Broker-side (Alpaca positions/orders) auto-adjusts. Decide whether to add a split-aware guard (see below).
+
+### Stock-split root-cause fix — split-aware position handling (Jun 12, needs deploy)
+**What shipped**: Discovered the ~$7.7k drop was a real artifact — KLAC's bracket stop fired on the 10:1 split (paper broker adjusted price, not share count). Cleaned up state (cleared stopped:KLAC false guard, reset stock:KLAC status, journaled the artifact, seeded `splits_processed`). **Code fix**: `reconcile_positions` now tags a stop that coincides with a split as `split_artifact` and does NOT write the `stopped:` re-entry guard; new `adjust_for_corporate_actions()` (factor-loop Step 0) divides stale stock:*/watchlist targets by the split ratio (idempotent via `splits_processed`) and flags held names that split.
+**Trigger**: First factor loop after this deploys.
+- [ ] Factor-loop Step 0 calls `adjust_for_corporate_actions()` before reconcile; logs adjusted targets / split flags
+- [ ] Idempotency: re-running does NOT re-divide already-adjusted targets (KLAC:2026-06-12 in splits_processed → skipped)
+- [ ] A stop firing on a split day is tagged `split_artifact` in trades.thesis and does NOT create a `stopped:{SYM}` guard
+- [ ] KLAC re-enters the universe normally (no false stop block); next analysis writes correct post-split targets
+- [ ] Held-name split flags surface in the loop output for stop review
+- [ ] Known limitation: cannot prevent Alpaca paper's own mis-fire on the split tick (no advance split calendar) — we recognize + don't penalize re-entry rather than blocking the fill
 
 ### Two-Portfolio System — Increment 8: single daily digest email (Jun 12)
 **Trigger**: Next EOD reflection (`send_daily_subscription_emails`). **Local render passed Jun 12**: both books + cycle headline + tagged trades rendered without send.
