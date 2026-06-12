@@ -54,13 +54,47 @@ names (MU/WDC/SNDK), computes YoY/QoQ, blends in your forward read, and persists
 `ai_capex_tracker`. Note the resulting `guidance_direction` and
 `hyperscaler_total_yoy`.
 
-## Step 5 — Record the daily history point
+## Step 5 — Cycle signals (the qualitative layer the quant misses)
 
-Call `record_ai_cycle_snapshot()`. It reads the three memory keys you just
+The capex/durability scores are quantitative. This step captures the NARRATIVE
+signals that front-run them — the things that move before the numbers do. Run a few
+`internet_search` queries across these angles (rotate / prioritize what's fresh):
+
+- **Demand stress** — customers pushing back on AI/token cost, ROI doubts, budget
+  overruns ("AI inference cost", "AI budget overrun", "token tax margins")
+- **Financing strain** — capex funded by debt/equity issuance ("hyperscaler AI
+  capex debt bond issuance", "data center financing")
+- **Supply tightness** — memory/HBM shortages, lead times, pricing ("HBM DRAM
+  shortage", "memory pricing")
+- **Capacity / guidance** — new fabs/data centers, hyperscaler capex guidance changes
+
+Curate the **top 4-7** most cycle-relevant items. For each, classify:
+- `category`: `demand_stress` | `financing_strain` | `supply_tight` | `capacity_adds` | `guidance_shift`
+- `direction`: `supportive` | `cautionary` | `neutral`
+- `why`: ONE line on what it means for the cycle (your read, not just a summary)
+- plus `headline`, `source`, `url` (real link), `date`
+
+Then persist (REPLACE the list each run — keep it current, ~7 max):
+```
+write_agent_memory("ai_cycle_signals", {
+    "as_of": "<ISO now>",
+    "net_read": "<1-2 sentences synthesizing the balance: supportive vs cautionary, where's the weight>",
+    "signals": [ {headline, source, url, date, category, direction, why}, ... ],
+})
+```
+
+Discipline: **signal, not noise.** Cap at ~7, each must carry a real source link, and
+the `why` must tie to the cycle — not generic AI news. A cluster of `demand_stress` +
+`financing_strain` is an early warning the cycle is maturing; reflect that in `net_read`
+and your Step 7 journal note.
+
+## Step 6 — Record the daily history point
+
+Call `record_ai_cycle_snapshot()`. It reads the cycle memory keys you just
 refreshed and writes one dated row to `ai_cycle_snapshots` (the time series behind
 the trend chart). Idempotent — re-running the same day upserts.
 
-## Step 6 — Brief journal note (optional but preferred)
+## Step 7 — Brief journal note (optional but preferred)
 
 Write a SHORT journal entry (`entry_type="market_scan"`,
 `run_source="ai_cycle_refresh"`) summarizing the read in 2-3 sentences: cycle
