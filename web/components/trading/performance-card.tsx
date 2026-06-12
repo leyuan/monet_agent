@@ -13,6 +13,7 @@ interface PerformanceData {
   dailyPnl: number;
   filledTrades: number;
   sinceDate: string | null;
+  adjustment: number;
 }
 
 export function PerformanceCard() {
@@ -25,7 +26,7 @@ export function PerformanceCard() {
 
       const STARTING_EQUITY = 100_000;
 
-      const [tradesRes, portfolioRes, firstSnapshotRes] = await Promise.all([
+      const [tradesRes, portfolioRes, firstSnapshotRes, adjRes] = await Promise.all([
         supabase
           .from("trades")
           .select("id", { count: "exact", head: true })
@@ -39,10 +40,14 @@ export function PerformanceCard() {
           .order("snapshot_date", { ascending: true })
           .limit(1)
           .maybeSingle(),
+        supabase.from("agent_memory").select("value").eq("key", "performance_adjustments").maybeSingle(),
       ]);
 
       const acct = portfolioRes?.account;
-      const currentEquity = acct?.equity ? parseFloat(acct.equity) : 0;
+      // One-time corporate-action corrections (e.g. a broker split artifact) added
+      // back so return reflects the strategy, not the simulator bug. Disclosed in UI.
+      const adjustment = Number((adjRes.data?.value as { total?: number } | undefined)?.total ?? 0);
+      const currentEquity = acct?.equity ? parseFloat(acct.equity) + adjustment : 0;
       const dailyPnl = acct?.equity && acct?.last_equity
         ? parseFloat(acct.equity) - parseFloat(acct.last_equity)
         : 0;
@@ -58,6 +63,7 @@ export function PerformanceCard() {
         dailyPnl,
         filledTrades: tradesRes.count ?? 0,
         sinceDate: firstSnapshotRes.data?.snapshot_date ?? null,
+        adjustment,
       });
       setLoading(false);
     }
@@ -112,6 +118,12 @@ export function PerformanceCard() {
             <span className="text-muted-foreground/40">&rarr;</span>
             <span className="font-semibold text-foreground">{fmt(currentEquity)}</span>
           </div>
+        )}
+
+        {data.adjustment > 0 && (
+          <p className="text-[11px] text-muted-foreground/70 text-center">
+            incl. +${(data.adjustment / 1000).toFixed(1)}k one-time KLAC split-artifact correction
+          </p>
         )}
 
       </CardContent>

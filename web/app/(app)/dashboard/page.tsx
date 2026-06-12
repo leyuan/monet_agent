@@ -7,8 +7,7 @@ import { BenchmarkCard } from "@/components/trading/benchmark-card";
 import { PortfolioSummary, PositionsTable } from "@/components/trading/portfolio-card";
 import { TradeCard, TradeCardCompact } from "@/components/trading/trade-card";
 import { EarningsIntelligenceCard } from "@/components/trading/earnings-card";
-import { AiBubbleRiskCard } from "@/components/trading/AiBubbleRiskCard";
-import { AiCycleDurabilityCard } from "@/components/trading/AiCycleDurabilityCard";
+import { AiSuperCycleCard } from "@/components/trading/AiSuperCycleCard";
 import { BacktestSummaryCard } from "@/components/trading/BacktestSummaryCard";
 import { StrategyHealthCard } from "@/components/trading/StrategyHealthCard";
 import { PortfolioComparisonCard } from "@/components/trading/PortfolioComparisonCard";
@@ -75,10 +74,9 @@ export default function DashboardPage() {
         <BacktestSummaryCard />
       </div>
 
-      {/* Row 2: AI Sector Intelligence + Strategy Health */}
-      <div className="grid gap-4 lg:grid-cols-3">
-        <AiBubbleRiskCard />
-        <AiCycleDurabilityCard />
+      {/* Row 2: AI super-cycle summary (full detail on /ai-cycle) + Strategy Health */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <AiSuperCycleCard />
         <StrategyHealthCard />
       </div>
 
