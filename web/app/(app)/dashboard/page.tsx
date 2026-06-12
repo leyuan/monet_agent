@@ -28,6 +28,8 @@ export default function DashboardPage() {
   const [trades, setTrades] = useState<any[]>([]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [watchlist, setWatchlist] = useState<any[]>([]);
+  const [adjustment, setAdjustment] = useState(0);
+  const [todayAdjustment, setTodayAdjustment] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -35,16 +37,28 @@ export default function DashboardPage() {
     async function load() {
       const supabase = createClient();
 
-      const [portfolioRes, tradesRes, watchlistRes] = await Promise.all([
+      const [portfolioRes, tradesRes, watchlistRes, adjRes] = await Promise.all([
         fetch(`/api/portfolio?portfolio=${selected}`).then((r) => r.ok ? r.json() : null).catch(() => null),
         supabase.from("trades").select("*").eq("portfolio", selected).order("created_at", { ascending: false }).limit(10),
         supabase.from("watchlist").select("*").order("added_at", { ascending: false }),
+        supabase.from("agent_memory").select("value").eq("key", "performance_adjustments").maybeSingle(),
       ]);
 
       if (cancelled) return;
       setPortfolio(portfolioRes);
       setTrades(tradesRes.data ?? []);
       setWatchlist(watchlistRes.data ?? []);
+
+      // One-time corporate-action corrections for the selected book (e.g. the KLAC
+      // split artifact, Quant Core only). Cumulative → Value/Realized; today's →
+      // Daily P&L (the artifact only distorts the day it happened).
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const adjs: any[] = (adjRes.data?.value as { adjustments?: any[] } | undefined)?.adjustments ?? [];
+      const todayUtc = new Date().toISOString().slice(0, 10);
+      const mine = adjs.filter((a) => (a.portfolio ?? "quant") === selected);
+      setAdjustment(mine.reduce((s, a) => s + Number(a.amount ?? 0), 0));
+      setTodayAdjustment(mine.filter((a) => a.date === todayUtc).reduce((s, a) => s + Number(a.amount ?? 0), 0));
+
       setLoading(false);
     }
     load();
@@ -100,7 +114,7 @@ export default function DashboardPage() {
       </div>
       {portfolio?.account ? (
         <>
-          <PortfolioSummary data={portfolio} />
+          <PortfolioSummary data={portfolio} adjustment={adjustment} todayAdjustment={todayAdjustment} />
           <PositionsTable positions={portfolio.positions} />
         </>
       ) : (
