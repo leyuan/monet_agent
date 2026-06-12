@@ -8,19 +8,20 @@ You are running the **factor-based trading loop** — a systematic, quantitative
 
 ## Step 0: Load Context (ALWAYS DO THIS FIRST)
 
-1. **Run `reconcile_positions()` FIRST** — this detects any bracket stop-loss or take-profit fills that Alpaca executed since the last run. If it finds exits, it records them in the trades table and writes a journal entry. For stop-loss exits, it also saves a `stopped:{SYMBOL}` memory with exit context (price, regime). These symbols will be filtered from BUY signals in Step 2c unless conditions have meaningfully changed (price dropped 1 ATR, regime improved, or new earnings data). This ensures the rest of the loop operates on an accurate view of what we actually hold.
-2. Run `read_all_agent_memory()` to load all persistent beliefs
-3. Read your last 3 journal entries:
+1. **Run `adjust_for_corporate_actions()` FIRST** — detects recent stock splits and keeps stored prices consistent: it divides stale `stock:*`/watchlist target prices by the split ratio, and flags any held name that split (so a split isn't mistaken for a ~90% crash). A 10:1 split would otherwise make a $217 stock read as 90% below a $2173 target. Review any `split_flags` it returns — verify those positions' protective stops are split-adjusted.
+2. **Run `reconcile_positions()`** — this detects any bracket stop-loss or take-profit fills that Alpaca executed since the last run. If it finds exits, it records them in the trades table and writes a journal entry. For genuine stop-loss exits it saves a `stopped:{SYMBOL}` memory with exit context (price, regime); these are filtered from BUY signals in Step 2c unless conditions meaningfully changed. **A stop that fired on a split is auto-tagged `split_artifact` and does NOT block re-entry** — the strategy can re-buy the name on its merits. This ensures the rest of the loop operates on an accurate view of what we actually hold.
+3. Run `read_all_agent_memory()` to load all persistent beliefs
+4. Read your last 3 journal entries:
    ```sql
    SELECT entry_type, title, content, symbols, created_at FROM agent_journal ORDER BY created_at DESC LIMIT 3
    ```
-4. Check for user insights (last 3 days):
+5. Check for user insights (last 3 days):
    ```sql
    SELECT title, content, symbols, created_at FROM agent_journal
    WHERE entry_type = 'user_insight' AND created_at >= NOW() - INTERVAL '3 days'
    ORDER BY created_at DESC
    ```
-5. **Check POSTDEPLOY_CHECK.md for pending items whose trigger is today or has passed.**
+6. **Check POSTDEPLOY_CHECK.md for pending items whose trigger is today or has passed.**
    Read the file at `skills/../../../POSTDEPLOY_CHECK.md` (relative to the agent root). For each pending item whose trigger condition is met this run, verify it during the appropriate step and note the result in Step 5's journal entry (one bullet per verified item). Do not block trading to verify — work checks into steps that already run the relevant tool.
 
 ---
