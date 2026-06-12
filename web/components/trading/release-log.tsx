@@ -33,6 +33,7 @@ const RELEASES: ReleaseEntry[] = [
       "AI Capex Trend card: hyperscaler capex YoY headline (currently ~+80%, accelerating) with per-name demand/supply breakdown",
       "Super-Cycle history chart: cycle durability & sector heat vs hyperscaler capex YoY over time, built from a new daily snapshot",
       "New daily AI cycle refresh (9:30 AM ET): reassesses heat + durability, reads forward capex guidance, records a history point",
+      "Cycle Signals: a curated qualitative layer Monet surfaces daily — demand stress, financing strain, supply tightness — the narrative that front-runs the quant (e.g. debt-funded capex, the AI 'token tax'), each tagged with what it means for the cycle",
     ],
   },
   {

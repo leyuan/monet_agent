@@ -4,6 +4,7 @@ import { AiCycleDurabilityCard } from "@/components/trading/AiCycleDurabilityCar
 import { AiBubbleRiskCard } from "@/components/trading/AiBubbleRiskCard";
 import { AiCapexTrendCard } from "@/components/trading/AiCapexTrendCard";
 import { CycleHistoryChart } from "@/components/trading/CycleHistoryChart";
+import { CycleSignalsCard } from "@/components/trading/CycleSignalsCard";
 
 export default function AiCyclePage() {
   return (
@@ -23,6 +24,9 @@ export default function AiCyclePage() {
         <AiCapexTrendCard />
         <AiBubbleRiskCard />
       </div>
+
+      {/* Qualitative cycle signals — the narrative the quant misses */}
+      <CycleSignalsCard />
 
       {/* Trend over time */}
       <CycleHistoryChart />
