@@ -6,16 +6,91 @@ Ongoing checklist of features/behaviors to verify after deployment. When reviewi
 
 ## Pending Verification
 
+### Two-Portfolio System — Increment 2: portfolio schema foundation (Jun 11)
+**Trigger**: After applying migration `20260611000000_two_portfolio.sql` to Supabase.
+- [ ] Migration applies cleanly; `trades.portfolio` and `equity_snapshots.portfolio` columns exist
+- [ ] All pre-existing `trades` rows backfilled to `portfolio='quant'` (none null/empty)
+- [ ] All pre-existing `equity_snapshots` rows backfilled to `portfolio='quant'`
+- [ ] Composite unique `(portfolio, snapshot_date)` enforced; old `snapshot_date`-only unique dropped (insert two rows same date diff portfolio succeeds)
+- [ ] Existing factor-loop run still records a `quant` equity snapshot and trades with no code changes (defaults work)
+- [ ] `get_equity_snapshots()` and dashboard performance reads still return the Quant Core curve unchanged (failure mode: empty curve = portfolio filter regression)
+
+### Two-Portfolio System — Increment 3: broker-layer parameterization (Jun 11)
+**Trigger**: First autonomous run after deploy with `ALPACA_API_KEY_CONVICTION` set in the LangGraph Platform env. **Local REST check passed Jun 11** (Quant Core acct PA3VC3H1LYAS $106.5k; Conviction acct PA38Q4IRLZYN clean $100k).
+- [ ] LangGraph Platform deployment has `ALPACA_API_KEY_CONVICTION` / `ALPACA_SECRET_KEY_CONVICTION` set (NOT just web/.env.local) — else `get_trading_client("conviction")` raises KeyError at runtime
+- [ ] Existing factor loop still trades/records on Quant Core unchanged (all defaults = "quant")
+- [ ] `get_portfolio("conviction")` returns the second account, not the first (distinct account_number)
+- [ ] A `place_order(..., portfolio="conviction")` lands in the Conviction Alpaca account and writes `trades.portfolio='conviction'`
+- [ ] `reconcile_positions("conviction")` only considers conviction trades (failure mode: a quant symbol shows up as a conviction ghost = portfolio filter missing)
+- [ ] `check_risk(..., portfolio="conviction", risk_overrides={...})` reads Conviction equity and applies the relaxed limits
+
+### Two-Portfolio System — Increment 4: automated capex signal + cycle history (Jun 11)
+**Trigger**: First autonomous run that calls `compute_ai_capex_trend()` + `record_ai_cycle_snapshot()` (wired into the Increment-5 daily refresh). **Local data check passed Jun 11**: capex retrieved for all 7 names, hyperscaler YoY ~+80% → accelerating.
+- [ ] `compute_ai_capex_trend()` runs without error; `agent_memory.ai_capex_tracker` updated with `guidance_direction`, `hyperscaler_total_yoy`, `memory_yoy`, `per_name`
+- [ ] Direction reads `accelerating` while hyperscaler capex YoY is strongly positive (currently ~+80%)
+- [ ] `assess_ai_cycle_durability()` Signal 5 now reads the AUTOMATED tracker (capex_signal.direction matches compute_ai_capex_trend output, not the old manual value)
+- [ ] SNDK failure mode: sparse/zero SNDK capex does NOT break the tool (per-name try/except → memory_yoy still computes from MU/WDC)
+- [ ] `record_ai_cycle_snapshot()` writes one row to `ai_cycle_snapshots` for today with cycle_score, phase, capex_direction, hyperscaler_capex_yoy
+- [ ] Re-running same day upserts (no duplicate snapshot_date rows)
+- [ ] When the agent passes `forward_guidance_direction="cutting"`, the blended direction downgrades vs the financial-only direction
+
+### Two-Portfolio System — Increment 5: AI Super-Cycle page + daily refresh (Jun 12)
+**Trigger**: Deploy web + run `python scripts/create_crons.py` to register the daily AI cycle refresh cron. **Local verify passed Jun 12**: page renders, real data seeded (durability 42, capex +80.5% accelerating, heat 20), 1 history snapshot for 2026-06-12.
+- [ ] `/ai-cycle` appears in the sidebar nav (Cpu icon) and renders the three cards + history chart
+- [ ] AI Capex Trend card shows hyperscaler YoY headline + per-name demand/supply rows (MSFT/GOOGL/AMZN/META, MU/WDC/SNDK)
+- [ ] History chart populates as snapshots accrue (needs ≥2 days for a line; 1 day shows a point)
+- [ ] Daily cron "AI Cycle Refresh (9:30 AM ET)" exists after create_crons.py and fires — writes a new `ai_cycle_snapshots` row each day
+- [ ] The refresh agent runs internet_search and passes a real `forward_guidance_direction` into compute_ai_capex_trend (check the journal entry run_source='ai_cycle_refresh' notes guidance)
+- [ ] RLS: `ai_cycle_snapshots` readable by authenticated app users; anon `/api/ai-cycle` returns empty history (security check)
+- [ ] **DEPLOY DEP**: `create_crons.py` must be re-run for the new cron to exist; the ai-cycle-refresh skill ships with the agent deploy
+
+### Two-Portfolio System — Increment 6: Conviction strategy (Jun 12)
+**Trigger**: After deploy + `create_crons.py`, the first "Conviction Loop (11 AM ET)" run. **Local sizing check passed Jun 12**: size_cycle_position("MU") returned 41/30/20 sh for high/medium/starter, 20% ATR stop.
+- [ ] Conviction cron exists and fires AFTER the 9:30am AI cycle refresh (fresh signals)
+- [ ] Step 1 hard-exit check runs BEFORE entries every loop (journal shows exit evaluation even when flat)
+- [ ] Entry gate correctly blocks when durability is maturing/cooling — UNLESS capex is accelerating and the "stale capex sub-signal" exception is explicitly invoked in the journal
+- [ ] A Conviction entry lands in the conviction Alpaca account (PA38Q4IRLZYN) with `trades.portfolio='conviction'`, 20-40% sizing, wide 10-20% stop
+- [ ] `risk_overrides=CONVICTION_RISK_OVERRIDES` lets the 40% position through (a 40% position would FAIL Quant Core's 10% limit — confirms override path works)
+- [ ] Hard exit fires end-to-end: force `ai_capex_tracker.guidance_direction="decelerating"` → next loop sells all Conviction positions
+- [ ] Conviction equity curve recorded separately via `record_daily_snapshot(portfolio="conviction")`
+- [ ] **Behavior note**: once live, Conviction trades AUTONOMOUSLY on paper. With durability currently 42/maturing but capex accelerating, the first run may enter MU under the stale-capex exception — confirm that's desired.
+
+### Two-Portfolio System — Increment 7: dashboard multi-portfolio UI (Jun 12)
+**Trigger**: Deploy web. **Local verify passed Jun 12**: /api/portfolio?portfolio=quant → $97,980/6 pos, ?portfolio=conviction → $100k/0 pos; dashboard compiles; tsc 0 errors.
+- [ ] Dashboard "Holdings" toggle switches summary/positions/trades between Quant Core and Conviction
+- [ ] Headline PortfolioComparisonCard plots Quant Core + SPY now, and Conviction once it has snapshots
+- [ ] BenchmarkCard + PerformanceCard still show ONLY Quant Core (pinned `portfolio="quant"`) — failure mode: numbers jump when Conviction starts trading = filter regression
+- [ ] /api/portfolio?portfolio=conviction routes to the conviction Alpaca account (equity $100k, distinct from quant)
+- [ ] Vercel env has `ALPACA_API_KEY_CONVICTION` / `ALPACA_SECRET_KEY_CONVICTION` (else the conviction toggle 500s in prod)
+- [ ] Recent Trades under the toggle shows only the selected book's trades (`trades.portfolio` filter)
+
+### Stock-split data integrity — KLAC 10:1 (Jun 12)
+**Issue**: KLAC executed a 10:1 split 2026-06-12. `stock:KLAC` memory held pre-split target_entry $2173.53 / target_exit $2595.85 (set Jun 11) → live ~$247 read as a phantom ~90% gap. **Fixed Jun 12**: targets corrected to $217.35 / $259.59, thesis stamped. Scanned all ~40 stored symbols — only KLAC split since Apr 1, no other stale records.
+**Hardening**: added explicit `auto_adjust=True` to the 5 `yf.download` return/momentum calls (tools.py:204,496,616,899,4201) + `market_data.get_historical_bars` — previously relied on yfinance's version-dependent default. Verified KLAC 1y return computes correctly (+185%, not −90%).
+- [ ] Next factor loop: KLAC momentum/score is sane (no split artifact); re-analysis overwrites stock:KLAC with fresh adjusted targets
+- [ ] **SYSTEMIC GAP (not yet built)**: no general corporate-actions handling. Any future split leaves stored absolute prices (stock:* targets, watchlist targets, open trade stop/TP) stale by the split ratio until re-analysis. Broker-side (Alpaca positions/orders) auto-adjusts. Decide whether to add a split-aware guard (see below).
+
+### Two-Portfolio System — Increment 8: single daily digest email (Jun 12)
+**Trigger**: Next EOD reflection (`send_daily_subscription_emails`). **Local render passed Jun 12**: both books + cycle headline + tagged trades rendered without send.
+- [ ] Daily email shows BOTH books (Quant Core + Conviction) with equity / day P&L / return / vs SPY
+- [ ] AI Super-Cycle headline line present (cycle phase + score, capex direction + hyperscaler YoY, heat level + score)
+- [ ] Trades tagged [QUANT] / [CONV]
+- [ ] Conviction shows "vs SPY —" until it has its own equity_snapshots (no crash on missing data)
+- [ ] NO separate weekly cycle email goes out (weekly-review Step 7 no longer calls send_weekly_cycle_report; the Sunday review itself still runs)
+- [ ] Subject reads "Monet Daily Digest" and only ONE email per subscriber per day
+
 ### Tier 1 Strategy Health Monitoring (first runs after Apr 17 deploy)
-**Trigger**: Next Sunday weekly review + next EOD reflection.
-- [ ] Weekly review Step 8 runs `audit_factor_ic()` without error; completes in < 10 min
-- [ ] Row written to `factor_ic_runs` with variant_name='live_audit'
-- [ ] `strategy_health` key appears in agent_memory with current_ic, drift_flags, sample_dates
-- [ ] Weekly review Step 3 runs `suggest_factor_weight_adjustment()` and writes proposal+deltas+rationale to journal
-- [ ] Agent applies (or overrides with documented reason) the proposed weights via `write_agent_memory("factor_weights", ...)`
-- [ ] EOD reflection Step 2.5 runs `check_live_vs_backtest_divergence()` and persists to `strategy_divergence`
-- [ ] If status != "aligned", one-line note appears in the daily reflection
-- [ ] Dashboard `StrategyHealthCard` renders with IC trend arrows and live-vs-backtest status
+**Trigger**: Next Sunday weekly review + next EOD reflection. **Checked May 29 — IC audit half FAILING.**
+- [ ] ❌ Weekly review Step 8 runs `audit_factor_ic()` without error — FAILS. Journals report "IC audit error, only 1 sample date, all IC null" for 5+ consecutive weeks (Weeks 8–12). Tool is erroring every Sunday.
+- [ ] ❌ Row written to `factor_ic_runs` with variant_name='live_audit' — FAILS. **Zero `live_audit` rows have ever been persisted.** Table only holds the 4 backtest variants from the Apr 17 batch (max sample_size 18).
+- [ ] ⚠️ `strategy_health` key appears with current_ic, drift_flags, sample_dates — PARTIAL. Key exists but frozen at assessed_date 2026-05-10 (19 days stale); IC values null; no robust sample_dates.
+- [x] Weekly review Step 3 runs `suggest_factor_weight_adjustment()` — runs, but proposal is garbage (null IC in → noise out). Week 12 proposal was correctly REJECTED by the agent.
+- [x] Agent applies (or overrides with documented reason) — agent overrides via empirical/P&L reasoning each week (human-in-loop working as designed; see factor_weights reason 05-24).
+- [x] ✅ EOD reflection Step 2.5 runs `check_live_vs_backtest_divergence()` and persists to `strategy_divergence` — WORKING (content as_of 2026-05-28, status "aligned").
+- [x] If status != "aligned", one-line note appears — N/A currently (status aligned). Divergence flag DID fire on 05-26 reflection ("Major Divergence Flag") so path is exercised.
+- [ ] Dashboard `StrategyHealthCard` renders — not verified (no UI access this run).
+
+**ROOT CAUSE TO FIX**: `audit_factor_ic()` only finds 1 usable cross-sectional date per run (→ null IC). Likely a date-window / price-alignment bug in the live audit path. Until fixed, the entire self-adjustment loop is dead — `suggest_factor_weight_adjustment()` has no valid signal, and weights have been held by discretionary override for 5+ weeks. Also note: `agent_memory.updated_at` does NOT bump on value updates (strategy_divergence content is 05-28 but updated_at stuck at 04-17) — freshness monitoring must read internal date fields, not updated_at.
 
 ### Promoted BASELINE_VARIANT (3-component momentum + ATR stops) — next factor loop run
 **Trigger**: First factor-loop run after the Apr 17 promotion of short_mom_atr to BASELINE_VARIANT.

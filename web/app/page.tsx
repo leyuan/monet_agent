@@ -84,7 +84,7 @@ export default async function LandingPage() {
       <section className="max-w-4xl mx-auto px-6 py-16">
         <div className="grid gap-8 sm:grid-cols-3">
           {[
-            { n: "01", title: "Talk to OpenClaw", desc: "Tell OpenClaw your sectors, risk tolerance, and experience level. It configures everything — no forms, no dashboards, just a conversation." },
+            { n: "01", title: "Talk to Monet", desc: "Tell Monet your sectors, risk tolerance, and experience level. It configures everything — no forms, no dashboards, just a conversation." },
             { n: "02", title: "Get Your Own Agent", desc: "In under 2 minutes you get a dedicated quant agent that scores 900 stocks on four factors, executes trades, and manages risk." },
             { n: "03", title: "Customize Anytime", desc: "Chat with your agent to adjust strategy, shift sector focus, or tune risk. It improves its factor weights weekly." },
           ].map(({ n, title, desc }) => (
@@ -97,7 +97,7 @@ export default async function LandingPage() {
         </div>
       </section>
 
-      {/* OpenClaw setup */}
+      {/* Personalized setup */}
       <section className="border-y bg-muted/30">
         <div className="max-w-5xl mx-auto px-6 py-20">
           <div className="grid md:grid-cols-2 gap-12 items-center">
@@ -111,7 +111,7 @@ export default async function LandingPage() {
                 configured in 2 minutes
               </h2>
               <p className="mt-4 text-muted-foreground leading-relaxed">
-                Tell OpenClaw your sectors, risk tolerance, and experience level.
+                Tell Monet your sectors, risk tolerance, and experience level.
                 It sets factor weights, builds your universe, and deploys your
                 agent — no forms, no dashboards, just a conversation.
               </p>

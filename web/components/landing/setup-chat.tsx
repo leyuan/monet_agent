@@ -52,7 +52,7 @@ export function SetupChat() {
         {
           role: "assistant",
           content:
-            "Hi! I'm OpenClaw. I'll set up your own AI quant agent in about 2 minutes. What sectors are you most interested in?",
+            "Hi! I'm Monet. I'll set up your own AI quant agent in about 2 minutes. What sectors are you most interested in?",
         },
       ]);
       setTyping(false);
@@ -134,7 +134,7 @@ export function SetupChat() {
       {/* Header */}
       <div className="px-4 py-3 border-b flex items-center gap-2">
         <div className="w-2 h-2 rounded-full bg-emerald-500" />
-        <span className="text-sm font-medium">OpenClaw</span>
+        <span className="text-sm font-medium">Monet</span>
       </div>
 
       {/* Messages */}
@@ -171,7 +171,7 @@ export function SetupChat() {
                 <div className="rounded-xl border bg-card p-4 max-w-[85%] space-y-2 font-mono text-xs">
                   <div>
                     <span className="text-muted-foreground">URL: </span>
-                    monet-abc123.openclaw.ai
+                    monet-agent.vercel.app
                   </div>
                   <div>
                     <span className="text-muted-foreground">Username: </span>

@@ -109,7 +109,7 @@ def get_historical_bars(
             break
 
     ticker = yf.Ticker(symbol)
-    df = ticker.history(period=period)
+    df = ticker.history(period=period, auto_adjust=True)  # split/dividend adjusted
 
     if df.empty:
         return pd.DataFrame()
@@ -119,9 +119,9 @@ def get_historical_bars(
     return df
 
 
-def get_portfolio() -> dict:
-    """Get current Alpaca portfolio state."""
-    client = get_trading_client()
+def get_portfolio(portfolio: str = "quant") -> dict:
+    """Get current Alpaca portfolio state for a portfolio ("quant" or "conviction")."""
+    client = get_trading_client(portfolio)
     account = client.get_account()
     positions = client.get_all_positions()
 

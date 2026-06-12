@@ -120,34 +120,30 @@ ORDER BY created_at DESC
 - Were any catalysts this week correctly anticipated? Did the guard help?
 - Update catalyst list if needed via `write_agent_memory("upcoming_catalysts", ...)`
 
-### 7. AI Cycle Durability Assessment & Weekly Report
+### 7. AI Cycle Durability Assessment
 
 Run `assess_ai_cycle_durability()` to score the current AI capex cycle. This tool:
 - Measures 5 signals: stack breadth, infra momentum, memory demand, equipment demand, capex trajectory
 - Compares each AI infrastructure layer's 3-month return vs SPY
-- Reads the `ai_capex_tracker` memory for quarterly hyperscaler capex guidance
+- Reads the `ai_capex_tracker` memory for hyperscaler capex direction
 - Persists results to `ai_cycle_durability` memory for the dashboard card
 
-After reviewing the results, send the weekly cycle report via `send_weekly_cycle_report(agent_commentary=...)`:
-- Write 3-5 sentences of commentary covering:
-  - What changed since last week (new layers participating/lagging, momentum shifts)
-  - Which specific stocks/layers are driving the score
-  - What to watch for next week (upcoming earnings, capex guidance, supply signals)
-  - Whether the cycle phase warrants any portfolio action
-- The tool automatically includes both cycle durability and sector heat data
-- It renders a full HTML email with signal breakdown, layer details, and data sources
+Review the result and note in the Step 9 journal: what changed since last week (layers
+participating/lagging, momentum shifts), which stocks/layers drive the score, and whether
+the cycle phase warrants portfolio action.
 
-**Capex tracker maintenance**: If any hyperscaler (MSFT, GOOG, AMZN, META) reported earnings this week, update `ai_capex_tracker` memory:
+> **No separate weekly email.** The AI cycle headline now ships inside the single daily
+> digest (`send_daily_subscription_emails`), so do NOT call `send_weekly_cycle_report`.
+
+**Capex tracker (now automated)**: The `ai_capex_tracker` memory is refreshed every day by
+`compute_ai_capex_trend()` in the AI cycle refresh, which pulls actual quarterly capex from
+financials. You do NOT hand-write it. If a hyperscaler reported earnings this week and you
+have a clear read on forward guidance, you may refresh it with your qualitative view:
 ```
-write_agent_memory("ai_capex_tracker", {
-    "guidance_direction": "accelerating" | "stable" | "decelerating",
-    "summary": "Brief summary of latest capex guidance across hyperscalers",
-    "last_updated_quarter": "Q1 2026",
-    "details": {
-        "MSFT": {"capex_bn": 15.8, "yoy_growth_pct": 42, "guidance": "..."},
-        "GOOG": {...}, "AMZN": {...}, "META": {...}
-    }
-})
+compute_ai_capex_trend(
+    forward_guidance_direction="raising" | "maintaining" | "cutting",
+    forward_guidance_summary="<one-line read from the latest calls>",
+)
 ```
 
 ### 8. Strategy Health Audit (Factor IC)

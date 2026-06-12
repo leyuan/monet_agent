@@ -11,6 +11,31 @@ interface ReleaseEntry {
 
 const RELEASES: ReleaseEntry[] = [
   {
+    version: "v1.7",
+    date: "Jun 12",
+    title: "Two Portfolios: Quant Core + Conviction",
+    items: [
+      "New Conviction portfolio: a concentrated, cyclical capex-cycle book (1-3 AI-infra names like MU/WDC/SNDK) that enters on a super-cycle inflection and exits hard when capex rolls over — runs on its own isolated paper account",
+      "Quant Core (the existing systematic factor strategy) is unchanged and keeps its diversified 5-8 position / 10%-max discipline",
+      "Dashboard headline chart: Quant Core vs Conviction vs SPY, cumulative return since each book's inception",
+      "Dashboard Holdings toggle: switch between the two books to see each one's summary, positions, and trades",
+      "Conviction sizes concentrated positions (20-40% per name) with wide ATR-based cyclical stops, and checks hard-exit rules before every entry",
+      "One daily digest email: both portfolios' equity & return vs SPY, the AI super-cycle headline (cycle phase, capex direction, sector heat), and today's trades — replaces the separate weekly cycle report",
+    ],
+  },
+  {
+    version: "v1.6",
+    date: "Jun 12",
+    title: "AI Super-Cycle Tracker",
+    items: [
+      "New /ai-cycle page: a dedicated dashboard tracking whether the AI-infrastructure buildout keeps expanding — cycle durability, sector heat, and capex trend in one place",
+      "compute_ai_capex_trend(): automated capex signal — pulls quarterly capex from hyperscalers (MSFT/GOOGL/AMZN/META) + memory names (MU/WDC/SNDK), computes YoY/QoQ, blends in forward guidance. Replaces the old manual capex tracker",
+      "AI Capex Trend card: hyperscaler capex YoY headline (currently ~+80%, accelerating) with per-name demand/supply breakdown",
+      "Super-Cycle history chart: cycle durability & sector heat vs hyperscaler capex YoY over time, built from a new daily snapshot",
+      "New daily AI cycle refresh (9:30 AM ET): reassesses heat + durability, reads forward capex guidance, records a history point",
+    ],
+  },
+  {
     version: "v1.5",
     date: "Apr 17",
     title: "Tier 1 Strategy Health Monitoring & Self-Adjustment Loop",

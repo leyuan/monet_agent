@@ -103,6 +103,36 @@ CRONS = [
         ),
     },
     {
+        "name": "AI Cycle Refresh (9:30 AM ET daily)",
+        "schedule": "30 13 * * *",
+        "message": (
+            "Run the AI super-cycle refresh. Execute this phase:\n\n"
+            "1. **AI Cycle Refresh** — Read /skills/ai-cycle-refresh/SKILL.md and execute ALL steps (1-6)\n\n"
+            "This is a LIGHTWEIGHT daily reassessment — NO trading, NO universe scoring. "
+            "Reassess sector heat + cycle durability, read forward hyperscaler capex "
+            "guidance via internet_search, compute the capex trend, and record one "
+            "history point to ai_cycle_snapshots so the /ai-cycle page can chart the "
+            "super-cycle over time.\n\n"
+            "When writing the journal entry, set run_source='ai_cycle_refresh'."
+        ),
+    },
+    {
+        "name": "Conviction Loop (11 AM ET, Mon-Fri)",
+        "schedule": "0 15 * * 1-5",
+        "message": (
+            "Run the Conviction portfolio loop. Execute this phase:\n\n"
+            "1. **Conviction Loop** — Read /skills/conviction-loop/SKILL.md and execute ALL steps (0-4)\n\n"
+            "This is the CONCENTRATED cyclical book (portfolio='conviction'), NOT "
+            "Quant Core. It holds 1-3 AI-infra cyclicals (MU/WDC/SNDK/STX), enters on "
+            "a capex-cycle inflection, and EXITS HARD when capex/pricing rolls over. "
+            "ALWAYS check the hard-exit rules (Step 1) BEFORE any entry. All orders "
+            "use portfolio='conviction' and risk_overrides=CONVICTION_RISK_OVERRIDES.\n\n"
+            "Runs after the 9:30am AI cycle refresh so ai_capex_tracker and "
+            "ai_cycle_durability are fresh.\n\n"
+            "When writing journal entries, set run_source='conviction_loop'."
+        ),
+    },
+    {
         "name": "Price Alert Check (every 15 min, market hours)",
         "schedule": "*/15 14-20 * * 1-5",
         "message": (

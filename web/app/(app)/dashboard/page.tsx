@@ -11,9 +11,18 @@ import { AiBubbleRiskCard } from "@/components/trading/AiBubbleRiskCard";
 import { AiCycleDurabilityCard } from "@/components/trading/AiCycleDurabilityCard";
 import { BacktestSummaryCard } from "@/components/trading/BacktestSummaryCard";
 import { StrategyHealthCard } from "@/components/trading/StrategyHealthCard";
+import { PortfolioComparisonCard } from "@/components/trading/PortfolioComparisonCard";
 import { Card, CardContent } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
+
+type PortfolioSlug = "quant" | "conviction";
+const PORTFOLIOS: { slug: PortfolioSlug; label: string }[] = [
+  { slug: "quant", label: "Quant Core" },
+  { slug: "conviction", label: "Conviction" },
+];
 
 export default function DashboardPage() {
+  const [selected, setSelected] = useState<PortfolioSlug>("quant");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [portfolio, setPortfolio] = useState<any>(null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -23,24 +32,25 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
     async function load() {
       const supabase = createClient();
 
       const [portfolioRes, tradesRes, watchlistRes] = await Promise.all([
-        fetch("/api/portfolio").then((r) => r.ok ? r.json() : null).catch(() => null),
-        supabase.from("trades").select("*").order("created_at", { ascending: false }).limit(10),
+        fetch(`/api/portfolio?portfolio=${selected}`).then((r) => r.ok ? r.json() : null).catch(() => null),
+        supabase.from("trades").select("*").eq("portfolio", selected).order("created_at", { ascending: false }).limit(10),
         supabase.from("watchlist").select("*").order("added_at", { ascending: false }),
       ]);
 
-      if (portfolioRes) {
-        setPortfolio(portfolioRes);
-      }
+      if (cancelled) return;
+      setPortfolio(portfolioRes);
       setTrades(tradesRes.data ?? []);
       setWatchlist(watchlistRes.data ?? []);
       setLoading(false);
     }
     load();
-  }, []);
+    return () => { cancelled = true; };
+  }, [selected]);
 
   if (loading) {
     return (
@@ -54,7 +64,10 @@ export default function DashboardPage() {
     <div className="h-full overflow-y-auto p-6 space-y-6">
       <h1 className="text-2xl font-semibold">Dashboard</h1>
 
-      {/* Row 1: Overview Cards */}
+      {/* Headline: both books vs SPY */}
+      <PortfolioComparisonCard />
+
+      {/* Row 1: Quant Core strategy overview */}
       <div className="grid gap-4 lg:grid-cols-4">
         <PerformanceCard />
         <FactorSystemCard />
@@ -69,12 +82,35 @@ export default function DashboardPage() {
         <StrategyHealthCard />
       </div>
 
-      {/* Row 2: Portfolio Summary */}
-      {portfolio && (
+      {/* Portfolio book — toggle between Quant Core and Conviction */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <h2 className="text-lg font-semibold">Holdings</h2>
+        <div className="inline-flex rounded-lg border p-0.5">
+          {PORTFOLIOS.map((p) => (
+            <button
+              key={p.slug}
+              onClick={() => setSelected(p.slug)}
+              className={cn(
+                "px-3 py-1 text-sm rounded-md transition-colors",
+                selected === p.slug ? "bg-muted font-medium" : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {portfolio?.account ? (
         <>
           <PortfolioSummary data={portfolio} />
           <PositionsTable positions={portfolio.positions} />
         </>
+      ) : (
+        <Card>
+          <CardContent className="p-4 text-center text-muted-foreground">
+            No account data for {PORTFOLIOS.find((p) => p.slug === selected)?.label}.
+          </CardContent>
+        </Card>
       )}
 
       {/* Row 3: Earnings Intelligence */}

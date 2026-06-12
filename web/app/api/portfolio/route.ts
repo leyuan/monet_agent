@@ -1,12 +1,22 @@
 import { NextResponse } from "next/server";
 
-export async function GET() {
-  const apiKey = process.env.ALPACA_API_KEY;
-  const secretKey = process.env.ALPACA_SECRET_KEY;
+// Returns live Alpaca account + positions for a portfolio.
+// ?portfolio=conviction routes to the Conviction paper account; default = Quant Core.
+export async function GET(req: Request) {
+  const { searchParams } = new URL(req.url);
+  const portfolio = searchParams.get("portfolio") === "conviction" ? "conviction" : "quant";
+
+  const apiKey =
+    portfolio === "conviction" ? process.env.ALPACA_API_KEY_CONVICTION : process.env.ALPACA_API_KEY;
+  const secretKey =
+    portfolio === "conviction" ? process.env.ALPACA_SECRET_KEY_CONVICTION : process.env.ALPACA_SECRET_KEY;
   const baseUrl = process.env.ALPACA_BASE_URL || "https://paper-api.alpaca.markets";
 
   if (!apiKey || !secretKey) {
-    return NextResponse.json({ error: "Alpaca credentials not configured" }, { status: 500 });
+    return NextResponse.json(
+      { error: `Alpaca credentials not configured for portfolio '${portfolio}'` },
+      { status: 500 },
+    );
   }
 
   const headers = {
@@ -28,6 +38,7 @@ export async function GET() {
     const positions = await positionsRes.json();
 
     return NextResponse.json({
+      portfolio,
       account: {
         equity: parseFloat(account.equity),
         cash: parseFloat(account.cash),
@@ -45,7 +56,7 @@ export async function GET() {
         avg_entry_price: parseFloat(p.avg_entry_price),
       })),
     });
-  } catch (err) {
+  } catch {
     return NextResponse.json({ error: "Failed to fetch portfolio data" }, { status: 500 });
   }
 }
