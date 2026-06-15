@@ -24,10 +24,11 @@ The capability boundary (no trading tools) is enforced by the **tool list** rega
 ## Execution Status (update after EVERY task)
 
 - **Mode:** Subagent-Driven (`superpowers:subagent-driven-development`)
-- **Execution order:** `1 → 2 → 3 → 4 → 5 → 6 → 7 → 10 → 11 → 12 → 13 → 14 → 15 → 8 → 9 → 16`
-  (foundation → memory hardening → A1 → verify → common/ extraction)
-- **Last completed task:** Task 6 ✅ (commit 22dcdea + allowlist guard) — REVIEW_TOOLS (8 read-only/own tools, NO trading); boundary guard hardened from denylist → allowlist per review
-- **Next task:** Task 10 (memory hardening: begin_review + scope-based writes — first of the hardening tasks, done before A1)
+- **Execution order:** `1 → 2 → 3 → 4 → 5 → 6 → 10 → 11 → 12 → 13 → 14 → 15 → 7 → 8 → 9 → 16`
+  (foundation 1–6 → memory hardening 10–15 → graph wiring 7 → A1 8 → verify 9 → common/ 16)
+  NOTE: Task 7 moved AFTER hardening so it wires the final tool set + begin_review/scope-based prompt ONCE (hardening grows REVIEW_TOOLS + changes the write API, so wiring the graph before it would force rework).
+- **Last completed task:** Task 6 ✅ (commit 22dcdea) — foundation 1–6 complete. Task 10 PARTIAL (commit 54b82e8): scope-based write API + begin_review + 12/12 unit tests green, BUT ⚠️ **BLOCKED** — the `ContextVar` binding does NOT survive cross-turn in LangGraph (review confirmed: each node gets a copied context, so `write_reviewer_memory` sees no active review in a real run). Logic is right; persistence mechanism must change.
+- **Next task:** ⚠️ RESOLVE BINDING MECHANISM (user decision pending) — replace ContextVar with a cross-turn-durable store (graph state vs thread-scoped Supabase vs config-injected thread map), then finish Task 10 with a cross-turn test. Then 11 → 12 → 13 → 14 → 15 → 7 → 8 → 9 → 16.
 - **Working tree:** clean
 - **Checkbox convention:** the Execution Status block (Last completed / Next) is the authoritative resume marker; each task header gets ✅ when its spec+quality reviews pass and it's committed.
 
