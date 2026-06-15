@@ -6,7 +6,8 @@ from unittest.mock import MagicMock, patch
 def test_read_run_trace_extracts_tool_calls(mock_client_cls):
     client = MagicMock()
     root = SimpleNamespace(id="root-1", name="autonomous_loop", trace_id="t1",
-                           start_time="2026-06-07", error=None, run_type="chain")
+                           start_time="2026-06-07", error=None, run_type="chain",
+                           inputs={}, outputs={})
     tool = SimpleNamespace(name="query_database", inputs={"q": "x"}, outputs={"rows": 1},
                            error=None, run_type="tool")
     llm = SimpleNamespace(name="model", inputs={}, outputs={}, error=None, run_type="llm")
