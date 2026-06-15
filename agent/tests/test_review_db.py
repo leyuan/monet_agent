@@ -25,7 +25,10 @@ def test_list_recent_reviews_filters_by_type(mock_get):
     from review_agent.db import list_recent_reviews
 
     out = list_recent_reviews("conformance", limit=5)
+    sb.table.assert_called_with("agent_reviews")
     sb.table.return_value.select.return_value.eq.assert_called_with("review_type", "conformance")
+    sb.table.return_value.select.return_value.eq.return_value.order.assert_called_with("created_at", desc=True)
+    sb.table.return_value.select.return_value.eq.return_value.order.return_value.limit.assert_called_with(5)
     assert out == [{"verdict": "x"}]
 
 
@@ -38,5 +41,9 @@ def test_reviewer_memory_roundtrip(mock_get):
     from review_agent.db import write_reviewer_memory, read_reviewer_memory
 
     write_reviewer_memory("global", {"k": 1})
-    sb.table.return_value.upsert.assert_called()
+    sb.table.assert_any_call("reviewer_memory")
+    payload = sb.table.return_value.upsert.call_args[0][0]
+    assert payload["namespace"] == "global"
+    assert payload["value"] == {"k": 1}
+    assert sb.table.return_value.upsert.call_args[1]["on_conflict"] == "namespace"
     assert read_reviewer_memory("global") == {"value": {"k": 1}}

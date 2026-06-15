@@ -26,8 +26,8 @@ The capability boundary (no trading tools) is enforced by the **tool list** rega
 - **Mode:** Subagent-Driven (`superpowers:subagent-driven-development`)
 - **Execution order:** `1 → 2 → 3 → 4 → 5 → 6 → 7 → 10 → 11 → 12 → 13 → 14 → 15 → 8 → 9 → 16`
   (foundation → memory hardening → A1 → verify → common/ extraction)
-- **Last completed task:** Task 2 ✅ (commit d73d2b4) — agent_reviews + reviewer_memory migration (live apply deferred to deploy — Docker not running)
-- **Next task:** Task 3 (DB helpers: review_agent/db.py, TDD with mocked Supabase)
+- **Last completed task:** Task 3 ✅ (commit 7d46afa + test strengthening) — review_agent/db.py (write_review, list_recent_reviews, read/write reviewer_memory); 3/3 tests green
+- **Next task:** Task 4 (bounded context loader: review_agent/review_memory.py)
 - **Working tree:** clean
 - **Checkbox convention:** the Execution Status block (Last completed / Next) is the authoritative resume marker; each task header gets ✅ when its spec+quality reviews pass and it's committed.
 
@@ -226,7 +226,7 @@ git commit -m "feat(reviewer): add agent_reviews + reviewer_memory tables"
 
 ---
 
-### Task 3: DB helpers (`review_agent/db.py`)
+### Task 3: DB helpers (`review_agent/db.py`) ✅ DONE
 
 **Files:**
 - Create: `agent/src/review_agent/db.py`
