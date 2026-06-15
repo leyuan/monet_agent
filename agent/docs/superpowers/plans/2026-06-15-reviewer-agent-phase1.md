@@ -8,9 +8,16 @@
 
 **Tech Stack:** Python 3.11, `deepagents>=0.3.11`, `langgraph`, `langsmith`, Supabase (`supabase-py`), pytest + pytest-asyncio, `unittest.mock` (stdlib) for DB/LangSmith mocking.
 
-**Scope note (deliberate):** This phase does **not** extract a shared `common/` package (Option B's long-term shape). To keep Phase 1 low-risk, `review_agent` imports shared infra (`get_supabase`, read-only tools, middleware) directly from the existing `stock_agent` package. The `common/` extraction is a follow-up refactor once the reviewer's needs are proven. The capability boundary (no trading tools) is enforced by the **tool list**, not by package isolation — so this staging is safe.
+**Phase boundary (revised 2026-06-15):** Phase 1 builds the **complete, hardened platform + A1 as the one template skill**, then extracts `common/`. Phase 2 is **only the 5 remaining skills** (A2, C1, B1, B2, A4), authored on the finished platform.
 
-**Phase 2 (separate plan, after A1 review checkpoint):** skills A2, C1, B1, B2, A4, each reusing A1's validated shape.
+**Build order within Phase 1:**
+1. Foundation (Tasks 1–7): scaffold, tables, DB helpers, loader, trace, tools+boundary, graph.
+2. **Memory hardening (Tasks 10–15)** — done *before* A1 so A1 uses the final API. NOTE: this makes reviewer-memory writes **scope-based** (`write_reviewer_memory(scope=...)` with the namespace bound from `begin_review`), superseding the raw-namespace `write_reviewer_memory(namespace, value)` shown in Tasks 3/6/8. When executing, build the hardened API and have A1 (Task 8) consume it.
+3. A1 skill (Task 8) — uses `begin_review` + scope-based writes.
+4. Verification (Task 9).
+5. **`common/` extraction (Task 16)** — LAST, informed by what the reviewer actually uses; repoints `stock_agent` + `review_agent` + `backtest` imports.
+
+The capability boundary (no trading tools) is enforced by the **tool list** regardless of packaging, so building on `stock_agent` imports first and extracting `common/` last is safe.
 
 ---
 
@@ -964,9 +971,73 @@ git commit -m "docs(reviewer): release log + postdeploy verification for reviewe
 
 ---
 
+## Phase 1 (cont.) — Memory platform hardening + `common/` extraction
+
+> These build the "platform guarantees" from the spec. Execute Tasks 10–15 **before** A1 (Task 8) so A1 uses the final scope-based API. Each is TDD (failing test → implement → pass → commit), same rhythm as Tasks 1–9. Concrete designs below.
+
+### Task 10: Structural namespace-binding (`begin_review` + scope-based writes)
+
+**Files:** Modify `review_agent/tools.py`, `review_agent/review_memory.py`; Test `tests/test_namespace_binding.py`
+
+- [ ] Add `review_agent/context.py` with a `ContextVar`:
+```python
+# agent/src/review_agent/context.py
+from contextvars import ContextVar
+active_review_type: ContextVar[str | None] = ContextVar("active_review_type", default=None)
+```
+- [ ] `begin_review(review_type: str, subject: str, reason: str) -> dict` tool: sets `active_review_type`, logs routing (Task 15), returns `{"context": load_review_context(review_type), "subject": subject}`.
+- [ ] Replace `write_reviewer_memory(namespace, value)` with `write_reviewer_memory(scope: Literal["detail","global","index"], value: dict)`: resolves `detail → f"{active}:detail"`; raises if `active_review_type` is unset or scope invalid. **The LLM can no longer pass a raw namespace.**
+- [ ] **Test:** after `begin_review("conformance",...)`, `write_reviewer_memory("detail", {...})` writes `conformance:detail`; calling write with no active review raises; `scope="efficacy:detail"` (raw) is impossible (type-rejected). 
+
+### Task 11: Versioned / reversible detail writes
+
+**Files:** Modify `review_agent/db.py`; Test `tests/test_memory_versioning.py`
+
+- [ ] On `write_reviewer_memory`, before overwrite, push prior value into `value["_history"]` (cap 5 most recent). Add `revert_reviewer_memory(namespace)` restoring the last `_history` entry.
+- [ ] **Test:** write A then B → stored value is B, `_history[0]` is A; `revert` → value is A again. Raw verdicts in `agent_reviews` are untouched (assert not modified).
+
+### Task 12: Provenance schema on standing insights
+
+**Files:** Modify `review_agent/db.py` (helper); Test `tests/test_provenance.py`
+
+- [ ] Standing detail/global insights use shape: `{"patterns": [{"text", "source_review_ids": [...], "confidence", "first_seen", "last_seen", "count"}]}`. Add `stamp_insight(text, source_review_ids, confidence)` helper that builds/updates an entry (increments `count`, updates `last_seen`).
+- [ ] **Test:** stamping the same `text` twice merges (count=2, source_ids unioned), not duplicates.
+
+### Task 13: Confidence quarantine
+
+**Files:** Modify `review_agent/db.py` + `review_memory.py`; Test `tests/test_quarantine.py`
+
+- [ ] New insight enters `confidence="low"` (count=1); `stamp_insight` promotes to `"established"` at `count >= 3`. `load_review_context` labels low-confidence insights `(unconfirmed)`.
+- [ ] **Test:** first stamp → low; third → established; loader prefixes unconfirmed ones.
+
+### Task 14: Global-promotion gate
+
+**Files:** Modify `review_agent/tools.py`; Test `tests/test_global_gate.py`
+
+- [ ] `promote_to_global(text: str, justification: str, corroborating_review_ids: list[str]) -> dict`: requires `len(corroborating_review_ids) >= 2`, else returns `{"status":"rejected","reason":...}` and writes nothing. On success, `stamp_insight` into the `global` namespace.
+- [ ] **Test:** 1 ref → rejected, global unchanged; 2 refs → written to global with provenance.
+
+### Task 15: Routing logger
+
+**Files:** Modify `review_agent/tools.py` (inside `begin_review`); Test `tests/test_routing_log.py`
+
+- [ ] `begin_review` appends `{review_type, reason, subject, ts}` to the `routing_log` reviewer_memory namespace (capped list). (Used later to measure misroute rate.)
+- [ ] **Test:** two `begin_review` calls → `routing_log` has two entries, newest first.
+
+### Task 16: `common/` extraction (F2)
+
+**Files:** Create `agent/src/common/` (move `supabase_client.py`, read-only db fns, read-only tool fns); Modify imports in `stock_agent/*`, `review_agent/*`, `backtest/*`; Test: full suite + import check.
+
+- [ ] Create `agent/src/common/` package. Move `supabase_client.py` there. Move the **read-only** db functions (`read_memory`, journal/trades reads) and the read-only tool functions the reviewer uses (`query_database`, `read_agent_memory`, `read_all_agent_memory`, `get_performance_comparison`) into `common/`.
+- [ ] Repoint imports: `stock_agent` and `backtest` import these from `common/`; `review_agent` imports from `common/` (no longer from `stock_agent`). Update `pyproject.toml` packages if explicitly listed.
+- [ ] **Verify:** `cd agent && python -m pytest tests/ -v` all pass; `python -c "import stock_agent.agent, stock_agent.autonomy, review_agent.reviewer; print('ok')"`; confirm `review_agent` no longer imports from `stock_agent` (`grep -rn "import stock_agent" src/review_agent/` → only intentional, ideally none).
+- [ ] **Commit:** `git commit -m "refactor: extract common/ shared core; review_agent imports from common"`
+
+---
+
 ## Self-Review
 
-**Spec coverage:** F1 (Task 1), F3 (Tasks 2–3), memory model loader + v1 cut (Task 4), F5 `read_run_trace` (Task 5), tool boundary D4 (Task 6), skeptic prompt + consolidation contract + objectivity invariant (Task 7), A1 skill + authoring rubric per-skill checklist (Task 8). **F2 (`common/` extraction) intentionally deferred** — documented in the scope note. **B1/B2, A2, C1, A4 → Phase 2** (documented). Memory *platform guarantees* beyond v1-minimal (versioning, provenance schema, confidence quarantine, structural namespace-binding) are **not** in this phase — v1 implements the bounded loader + write tools + prompt-enforced consolidation; the harder guarantees are noted in the spec as platform work and should be a Phase-2/hardening item. ⚠️ *Gap to flag to the user:* the spec lists those guarantees under "platform (built once)"; this plan implements the minimal subset. That's a deliberate v1 cut, but call it out at the review checkpoint.
+**Spec coverage:** F1 (Task 1), F3 (Tasks 2–3), memory model loader (Task 4), F5 `read_run_trace` (Task 5), tool boundary D4 (Task 6), skeptic prompt + consolidation contract + objectivity invariant (Task 7), A1 skill + authoring rubric per-skill checklist (Task 8). **Memory platform guarantees now IN Phase 1** (revised scope): structural namespace-binding (Task 10), versioning/reversibility (Task 11), provenance schema (Task 12), confidence quarantine (Task 13), global-promotion gate (Task 14), routing logger (Task 15). **F2 `common/` extraction** = Task 16. **Only B1/B2, A2, C1, A4 → Phase 2** (the 5 remaining skills). No spec requirement left unaddressed in Phase 1.
 
 **Placeholder scan:** No "TBD/TODO/handle appropriately". All code blocks complete. Manual smoke (Task 9 Step 3) is explicitly gated on credits, not a placeholder.
 
