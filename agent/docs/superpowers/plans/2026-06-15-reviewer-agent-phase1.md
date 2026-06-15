@@ -21,6 +21,31 @@ The capability boundary (no trading tools) is enforced by the **tool list** rega
 
 ---
 
+## Execution Status (update after EVERY task)
+
+- **Mode:** Subagent-Driven (`superpowers:subagent-driven-development`)
+- **Execution order:** `1 → 2 → 3 → 4 → 5 → 6 → 7 → 10 → 11 → 12 → 13 → 14 → 15 → 8 → 9 → 16`
+  (foundation → memory hardening → A1 → verify → common/ extraction)
+- **Last completed task:** _(none yet)_
+- **Next task:** Task 1
+- **Working tree:** clean
+
+## Execution & Resume Protocol
+
+Each task is an **atomic commit boundary** — a task is either fully committed or not done. This is what makes a mid-task stop survivable.
+
+1. **Before a task:** confirm `git status` is clean (prior task committed).
+2. **During a task:** a fresh subagent implements it via the TDD steps. No commit until that task's tests pass.
+3. **After a task:** orchestrator reviews → flip that task's `- [ ]` to `- [x]` → update this **Execution Status** block (Last completed / Next) → **commit code + plan together** in one commit.
+4. **On resume (after any stop, crash, or blocker fix):**
+   - `git status` — if **dirty**, the last task was partial: finish it, or `git checkout -- .` and redo that task fresh.
+   - `git log --oneline` — find the last committed task.
+   - Read this plan's checkboxes + the Execution Status block → the **Next task**.
+   - Run `cd agent && python -m pytest tests/ -v` to confirm the current state is green.
+   - Resume the subagent dispatch at **Next task**.
+
+Because every task ends in a commit and the checkboxes are committed alongside the code, **no completed work is ever lost** — resume = "read the status block, verify green, continue from Next task."
+
 ## File Structure
 
 **Create:**
