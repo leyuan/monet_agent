@@ -26,8 +26,8 @@ The capability boundary (no trading tools) is enforced by the **tool list** rega
 - **Mode:** Subagent-Driven (`superpowers:subagent-driven-development`)
 - **Execution order:** `1 → 2 → 3 → 4 → 5 → 6 → 7 → 10 → 11 → 12 → 13 → 14 → 15 → 8 → 9 → 16`
   (foundation → memory hardening → A1 → verify → common/ extraction)
-- **Last completed task:** Task 5 ✅ (commit f65dee0 + test fix) — review_agent/trace.py read_run_trace (env-driven project, tool-call extraction); test green
-- **Next task:** Task 6 (REVIEW_TOOLS surface + capability-boundary guard test: review_agent/tools.py)
+- **Last completed task:** Task 6 ✅ (commit 22dcdea + allowlist guard) — REVIEW_TOOLS (8 read-only/own tools, NO trading); boundary guard hardened from denylist → allowlist per review
+- **Next task:** Task 10 (memory hardening: begin_review + scope-based writes — first of the hardening tasks, done before A1)
 - **Working tree:** clean
 - **Checkbox convention:** the Execution Status block (Last completed / Next) is the authoritative resume marker; each task header gets ✅ when its spec+quality reviews pass and it's committed.
 
@@ -613,7 +613,7 @@ git commit -m "feat(reviewer): read_run_trace LangSmith evidence tool"
 
 ---
 
-### Task 6: Compose `REVIEW_TOOLS` + capability-boundary guard test
+### Task 6: Compose `REVIEW_TOOLS` + capability-boundary guard test ✅ DONE
 
 **Files:**
 - Create: `agent/src/review_agent/tools.py`
