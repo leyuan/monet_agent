@@ -26,9 +26,10 @@ The capability boundary (no trading tools) is enforced by the **tool list** rega
 - **Mode:** Subagent-Driven (`superpowers:subagent-driven-development`)
 - **Execution order:** `1 → 2 → 3 → 4 → 5 → 6 → 7 → 10 → 11 → 12 → 13 → 14 → 15 → 8 → 9 → 16`
   (foundation → memory hardening → A1 → verify → common/ extraction)
-- **Last completed task:** _(none yet)_
-- **Next task:** Task 1
+- **Last completed task:** Task 1 ✅ (commit 143c118 + quality comment) — package scaffolded, 3rd graph registered, import test green
+- **Next task:** Task 2 (DB migration: agent_reviews + reviewer_memory)
 - **Working tree:** clean
+- **Checkbox convention:** the Execution Status block (Last completed / Next) is the authoritative resume marker; each task header gets ✅ when its spec+quality reviews pass and it's committed.
 
 ## Execution & Resume Protocol
 
@@ -66,7 +67,7 @@ Because every task ends in a commit and the checkboxes are committed alongside t
 
 ---
 
-### Task 1: Scaffold `review_agent` package + register the graph
+### Task 1: Scaffold `review_agent` package + register the graph ✅ DONE
 
 **Files:**
 - Create: `agent/src/review_agent/__init__.py`
