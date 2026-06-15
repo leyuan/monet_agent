@@ -2,7 +2,8 @@
   "dependencies": [".", "langchain_anthropic"],
   "graphs": {
     "monet_agent": "./src/stock_agent/agent.py:graph",
-    "autonomous_loop": "./src/stock_agent/autonomy.py:autonomous_graph"
+    "autonomous_loop": "./src/stock_agent/autonomy.py:autonomous_graph",
+    "review_agent": "./src/review_agent/reviewer.py:review_graph"
   },
   "auth": {
     "path": "./src/stock_agent/auth.py:auth"
