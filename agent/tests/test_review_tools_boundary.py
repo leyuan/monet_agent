@@ -13,6 +13,7 @@ ALLOWED = {
     "get_performance_comparison",
     "read_run_trace",
     # the reviewer's own stores (its only write capability)
+    "begin_review",
     "write_review",
     "read_reviewer_memory",
     "write_reviewer_memory",
