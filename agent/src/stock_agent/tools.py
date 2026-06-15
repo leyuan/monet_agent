@@ -3542,10 +3542,16 @@ def _build_subscription_email(data: dict, recipient_email: str | None = None) ->
             f"<td style='padding:8px; text-align:right; color:{_color(ret)};'>{html.escape(_signed(ret))}</td>"
             f"<td style='padding:8px; text-align:right; color:{_color(alpha)};'>{html.escape(vs)}</td></tr>"
         )
+    _adj = max((abs(float(b.get("adjustment") or 0)) for b in books), default=0)
+    adj_note = (
+        f"<p style='margin:6px 0 0 0; font-size:11px; color:#9ca3af;'>"
+        f"Equity, Return &amp; vs-SPY include a +${_adj/1000:.1f}k one-time KLAC split-artifact correction.</p>"
+        if _adj else ""
+    )
     portfolios_html = (
         "<table width='100%' cellpadding='0' cellspacing='0' "
         "style='border-collapse:collapse; margin-top:4px;'>"
-        f"{head}{body_rows}</table>"
+        f"{head}{body_rows}</table>{adj_note}"
     )
 
     # ── AI super-cycle headline band ──────────────────────────────────────────
@@ -3712,17 +3718,30 @@ def send_daily_subscription_emails() -> dict:
 
         # ── Per-book metrics (Quant Core + Conviction) ─────────────────────────
         # Match the dashboard: return = live equity vs $100k inception; SPY/alpha
-        # from each book's own latest equity_snapshot.
+        # from each book's own latest equity_snapshot; one-time corporate-action
+        # corrections (e.g. KLAC split artifact) added back so the email agrees with
+        # the dashboard. Cumulative → equity/return; today's portion → daily P&L.
         _STARTING_EQUITY = 100_000
+        try:
+            _pa = (
+                sb.table("agent_memory").select("value").eq("key", "performance_adjustments").maybe_single().execute()
+            )
+            _perf_adjustments = (_pa.data or {}).get("value", {}).get("adjustments", []) if _pa and _pa.data else []
+        except Exception:
+            _perf_adjustments = []
 
         def _book_metrics(name: str, slug: str) -> dict:
             try:
                 p = get_portfolio(slug)
             except Exception:
                 logger.warning("Failed to load %s portfolio for daily email.", slug)
-                return {"name": name, "equity": None, "daily_pnl": None, "return_pct": None, "spy_pct": None, "alpha_pct": None}
+                return {"name": name, "equity": None, "daily_pnl": None, "return_pct": None, "spy_pct": None, "alpha_pct": None, "adjustment": 0}
+            mine = [a for a in _perf_adjustments if (a.get("portfolio") or "quant") == slug]
+            adj_total = sum(float(a.get("amount") or 0) for a in mine)
+            adj_today = sum(float(a.get("amount") or 0) for a in mine if a.get("date") == today_start)
             eq = p.get("equity")
-            ret = round((eq - _STARTING_EQUITY) / _STARTING_EQUITY * 100, 2) if eq else None
+            eq_adj = (eq + adj_total) if eq else eq
+            ret = round((eq_adj - _STARTING_EQUITY) / _STARTING_EQUITY * 100, 2) if eq_adj else None
             spy = None
             try:
                 snaps = get_equity_snapshots(days=1, portfolio=slug)
@@ -3731,7 +3750,8 @@ def send_daily_subscription_emails() -> dict:
             except Exception:
                 pass
             alpha = round(ret - spy, 2) if (ret is not None and spy is not None) else None
-            return {"name": name, "equity": eq, "daily_pnl": p.get("daily_pnl"), "return_pct": ret, "spy_pct": spy, "alpha_pct": alpha}
+            daily = (p.get("daily_pnl") or 0) + adj_today
+            return {"name": name, "equity": eq_adj, "daily_pnl": daily, "return_pct": ret, "spy_pct": spy, "alpha_pct": alpha, "adjustment": adj_total}
 
         books = [_book_metrics("Quant Core", "quant"), _book_metrics("Conviction", "conviction")]
 
