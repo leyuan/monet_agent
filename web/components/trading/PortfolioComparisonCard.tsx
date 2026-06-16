@@ -44,18 +44,22 @@ function LatestStat({ label, value, color }: { label: string; value: number | nu
 
 export function PortfolioComparisonCard() {
   const [points, setPoints] = useState<Point[]>([]);
+  const [adjusted, setAdjusted] = useState(0);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
       const supabase = createClient();
-      const { data } = await supabase
-        .from("equity_snapshots")
-        .select("snapshot_date, portfolio, portfolio_cumulative_return, spy_cumulative_return")
-        .order("snapshot_date", { ascending: true })
-        .limit(400);
+      const [snapRes, adjRes] = await Promise.all([
+        supabase
+          .from("equity_snapshots")
+          .select("snapshot_date, portfolio, portfolio_cumulative_return, spy_cumulative_return")
+          .order("snapshot_date", { ascending: true })
+          .limit(400),
+        supabase.from("agent_memory").select("value").eq("key", "performance_adjustments").maybeSingle(),
+      ]);
 
-      const rows = (data as SnapRow[] | null) ?? [];
+      const rows = (snapRes.data as SnapRow[] | null) ?? [];
       // Merge by date: quant return, conviction return, and one SPY line (prefer quant's longer history).
       const byDate = new Map<string, Point>();
       for (const r of rows) {
@@ -69,7 +73,23 @@ export function PortfolioComparisonCard() {
         }
         byDate.set(r.snapshot_date, p);
       }
-      setPoints([...byDate.values()].sort((a, b) => a.date.localeCompare(b.date)));
+      const merged = [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+
+      // Add back one-time corporate-action corrections: a fixed-$ artifact shifts
+      // cumulative return by amount/$100k pp for every point on/after its date.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const adjs: any[] = (adjRes.data?.value as { adjustments?: any[] } | undefined)?.adjustments ?? [];
+      setAdjusted(adjs.reduce((s, a) => s + Math.abs(Number(a.amount ?? 0)), 0));
+      for (const p of merged) {
+        for (const a of adjs) {
+          if (!a.date || a.amount == null || p.date < a.date) continue;
+          const pp = Number(a.amount) / 1000; // amount / $100k * 100
+          const book = a.portfolio ?? "quant";
+          if (book === "quant" && p.quant !== null) p.quant += pp;
+          if (book === "conviction" && p.conviction !== null) p.conviction += pp;
+        }
+      }
+      setPoints(merged);
       setLoading(false);
     }
     load();
@@ -99,6 +119,9 @@ export function PortfolioComparisonCard() {
             </p>
             <p className="text-xs text-muted-foreground mt-1">
               Cumulative return since each book&apos;s inception
+              {adjusted > 0 && (
+                <span className="text-muted-foreground/70"> · incl. +${(adjusted / 1000).toFixed(1)}k KLAC split-artifact correction</span>
+              )}
             </p>
           </div>
           <div className="flex gap-6">
