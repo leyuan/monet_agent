@@ -19,5 +19,5 @@ def local_supabase():
     url = os.environ.get("SUPABASE_URL", "")
     if not ("127.0.0.1" in url or "localhost" in url):
         pytest.skip("integration tests require a LOCAL SUPABASE_URL (refusing non-local)")
-    from stock_agent.supabase_client import get_supabase
+    from common.supabase_client import get_supabase
     return get_supabase()
