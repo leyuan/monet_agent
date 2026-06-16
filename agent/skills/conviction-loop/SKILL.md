@@ -2,7 +2,8 @@
 
 The **Conviction** portfolio is a concentrated, cyclical capex-cycle book — the
 opposite of Quant Core's diversified factor strategy. It holds **1-3 AI-infra
-cyclicals** (MU, WDC, SNDK, STX), enters when the AI capex super-cycle is
+cyclicals** from the `conviction_universe` memory (currently memory MU/WDC/SNDK/STX,
+optical/networking FN, power NVTS), enters when the AI capex super-cycle is
 inflecting/accelerating, **rides the trend**, and **exits hard** when capex or
 pricing rolls over. Cyclicals round-trip — the sell discipline IS the edge.
 
@@ -17,9 +18,9 @@ Run every step in order. This loop runs once per weekday.
 
 1. `reconcile_positions(portfolio="conviction")` — catch any bracket fills since last run.
 2. `get_portfolio("conviction")` — current Conviction positions, equity, cash.
-3. Read memory: `ai_cycle_durability`, `ai_capex_tracker`, and the latest two
-   `ai_cycle_snapshots` rows (query the table) — you need the prior snapshot to
-   judge whether memory demand is rising or falling.
+3. Read memory: `conviction_universe` (the candidate list), `ai_cycle_durability`,
+   `ai_capex_tracker`, and the latest two `ai_cycle_snapshots` rows (query the table)
+   — you need the prior snapshot to judge whether memory demand is rising or falling.
 
 ---
 
@@ -68,9 +69,16 @@ fab issue). One qualitative sanity check — then proceed.
 
 ## Step 3 — SELECT, SIZE, EXECUTE
 
-1. **Select**: among `MU, WDC, SNDK, STX` not already held, pick the top 1-2 by
-   3-month momentum (use `get_historical_bars`/`technical_analysis`). MU is the
-   bellwether — prefer it unless a clear reason not to.
+1. **Select**: the candidate universe is the `conviction_universe` memory
+   (`value.symbols`; default `MU, WDC, SNDK, STX` if absent). Among names not already
+   held, pick the top 1-2 by 3-month momentum (use `get_historical_bars`/
+   `technical_analysis`). The universe spans AI-infra layers (see `value.notes`):
+   memory (MU/WDC/SNDK/STX), optical/networking (FN), power (NVTS). MU is the memory
+   bellwether — prefer it among memory names unless a clear reason not to.
+   - **Layer-aware gating**: the Step 2 memory-demand inflection signal applies to the
+     memory names. For a non-memory candidate (e.g. FN = optical, NVTS = power), confirm
+     the relevant `ai_cycle_durability` sub-signal instead — `infra_momentum` (power) for
+     NVTS, stack-breadth/Networking participation for FN — plus a headline check.
 2. **Conviction tier**: `high` (40% of book) only when the cycle is `full_build`
    AND capex accelerating AND the name is the clear leader; `medium` (30%) for a
    solid setup; `starter` (20%) when you want exposure but the signal is early.
