@@ -13,6 +13,7 @@ import { StrategyHealthCard } from "@/components/trading/StrategyHealthCard";
 import { PortfolioComparisonCard } from "@/components/trading/PortfolioComparisonCard";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
+import { fetchPerfAdjustments, cumulativeAdjustment, todayAdjustment as computeTodayAdjustment } from "@/lib/performance-adjustments";
 
 type PortfolioSlug = "quant" | "conviction";
 const PORTFOLIOS: { slug: PortfolioSlug; label: string }[] = [
@@ -41,7 +42,7 @@ export default function DashboardPage() {
         fetch(`/api/portfolio?portfolio=${selected}`).then((r) => r.ok ? r.json() : null).catch(() => null),
         supabase.from("trades").select("*").eq("portfolio", selected).order("created_at", { ascending: false }).limit(10),
         supabase.from("watchlist").select("*").order("added_at", { ascending: false }),
-        supabase.from("agent_memory").select("value").eq("key", "performance_adjustments").maybeSingle(),
+        fetchPerfAdjustments(supabase),
       ]);
 
       if (cancelled) return;
@@ -49,15 +50,12 @@ export default function DashboardPage() {
       setTrades(tradesRes.data ?? []);
       setWatchlist(watchlistRes.data ?? []);
 
-      // One-time corporate-action corrections for the selected book (e.g. the KLAC
-      // split artifact, Quant Core only). Cumulative → Value/Realized; today's →
-      // Daily P&L (the artifact only distorts the day it happened).
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const adjs: any[] = (adjRes.data?.value as { adjustments?: any[] } | undefined)?.adjustments ?? [];
+      // One-time corporate-action corrections for the selected book (KLAC split
+      // artifact = Quant Core only). Cumulative → Value/Realized; today's → Daily P&L
+      // (the artifact only distorts the day it happened).
       const todayUtc = new Date().toISOString().slice(0, 10);
-      const mine = adjs.filter((a) => (a.portfolio ?? "quant") === selected);
-      setAdjustment(mine.reduce((s, a) => s + Number(a.amount ?? 0), 0));
-      setTodayAdjustment(mine.filter((a) => a.date === todayUtc).reduce((s, a) => s + Number(a.amount ?? 0), 0));
+      setAdjustment(cumulativeAdjustment(adjRes, selected));
+      setTodayAdjustment(computeTodayAdjustment(adjRes, selected, todayUtc));
 
       setLoading(false);
     }

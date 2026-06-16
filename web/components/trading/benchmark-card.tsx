@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { fetchPerfAdjustments, cumulativeAdjustment } from "@/lib/performance-adjustments";
 
 interface Snapshot {
   snapshot_date: string;
@@ -33,18 +34,14 @@ export function BenchmarkCard() {
           .order("snapshot_date", { ascending: true })
           .limit(90),
         fetch("/api/portfolio").then((r) => r.ok ? r.json() : null).catch(() => null),
-        supabase.from("agent_memory").select("value").eq("key", "performance_adjustments").maybeSingle(),
+        fetchPerfAdjustments(supabase),
       ]);
 
       setSnapshots((snapshotRes.data as Snapshot[] | null) ?? []);
 
-      // One-time corporate-action corrections (e.g. a broker split artifact) added
-      // back so alpha reflects the strategy, not the simulator bug. Quant Core card,
-      // so sum only quant adjustments. Disclosed below.
-      const adjList = (adjRes.data?.value as { adjustments?: { amount?: number; portfolio?: string }[] } | undefined)?.adjustments ?? [];
-      const adj = adjList
-        .filter((a) => (a.portfolio ?? "quant") === "quant")
-        .reduce((s, a) => s + Number(a.amount ?? 0), 0);
+      // One-time corporate-action corrections added back so alpha reflects the
+      // strategy, not a broker artifact. Quant Core card → quant adjustments.
+      const adj = cumulativeAdjustment(adjRes, "quant");
       setAdjustment(adj);
 
       if (portfolioRes?.account?.equity) {

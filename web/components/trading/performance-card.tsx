@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { fetchPerfAdjustments, cumulativeAdjustment } from "@/lib/performance-adjustments";
 
 interface PerformanceData {
   overallReturn: number;
@@ -40,17 +41,13 @@ export function PerformanceCard() {
           .order("snapshot_date", { ascending: true })
           .limit(1)
           .maybeSingle(),
-        supabase.from("agent_memory").select("value").eq("key", "performance_adjustments").maybeSingle(),
+        fetchPerfAdjustments(supabase),
       ]);
 
       const acct = portfolioRes?.account;
-      // One-time corporate-action corrections (e.g. a broker split artifact) added
-      // back so return reflects the strategy, not the simulator bug. This card is
-      // Quant Core, so sum only quant adjustments. Disclosed in UI.
-      const adjList = (adjRes.data?.value as { adjustments?: { amount?: number; portfolio?: string }[] } | undefined)?.adjustments ?? [];
-      const adjustment = adjList
-        .filter((a) => (a.portfolio ?? "quant") === "quant")
-        .reduce((s, a) => s + Number(a.amount ?? 0), 0);
+      // One-time corporate-action corrections added back so return reflects the
+      // strategy, not a broker artifact. Quant Core card → quant adjustments. Disclosed in UI.
+      const adjustment = cumulativeAdjustment(adjRes, "quant");
       const currentEquity = acct?.equity ? parseFloat(acct.equity) + adjustment : 0;
       const dailyPnl = acct?.equity && acct?.last_equity
         ? parseFloat(acct.equity) - parseFloat(acct.last_equity)
