@@ -45,3 +45,6 @@ supabase/.temp/
 
 # Backtest data cache (local-only; re-downloaded on demand)
 agent/backtest/.cache/
+
+# Local one-off dev trigger scripts (kept local, never committed)
+agent/scripts/run_*_local.py
