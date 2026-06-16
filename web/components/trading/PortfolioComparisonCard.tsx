@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
+import { fetchPerfAdjustments, adjustmentPpAt, totalAdjustmentMagnitude } from "@/lib/performance-adjustments";
 import {
   CartesianGrid,
   Legend,
@@ -56,7 +57,7 @@ export function PortfolioComparisonCard() {
           .select("snapshot_date, portfolio, portfolio_cumulative_return, spy_cumulative_return")
           .order("snapshot_date", { ascending: true })
           .limit(400),
-        supabase.from("agent_memory").select("value").eq("key", "performance_adjustments").maybeSingle(),
+        fetchPerfAdjustments(supabase),
       ]);
 
       const rows = (snapRes.data as SnapRow[] | null) ?? [];
@@ -77,17 +78,10 @@ export function PortfolioComparisonCard() {
 
       // Add back one-time corporate-action corrections: a fixed-$ artifact shifts
       // cumulative return by amount/$100k pp for every point on/after its date.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const adjs: any[] = (adjRes.data?.value as { adjustments?: any[] } | undefined)?.adjustments ?? [];
-      setAdjusted(adjs.reduce((s, a) => s + Math.abs(Number(a.amount ?? 0)), 0));
+      setAdjusted(totalAdjustmentMagnitude(adjRes));
       for (const p of merged) {
-        for (const a of adjs) {
-          if (!a.date || a.amount == null || p.date < a.date) continue;
-          const pp = Number(a.amount) / 1000; // amount / $100k * 100
-          const book = a.portfolio ?? "quant";
-          if (book === "quant" && p.quant !== null) p.quant += pp;
-          if (book === "conviction" && p.conviction !== null) p.conviction += pp;
-        }
+        if (p.quant !== null) p.quant += adjustmentPpAt(adjRes, "quant", p.date);
+        if (p.conviction !== null) p.conviction += adjustmentPpAt(adjRes, "conviction", p.date);
       }
       setPoints(merged);
       setLoading(false);

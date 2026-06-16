@@ -2708,6 +2708,82 @@ def record_ai_cycle_snapshot() -> dict:
     return {"status": "recorded", **{k: row[k] for k in ("snapshot_date", "cycle_score", "phase", "capex_direction", "hyperscaler_capex_yoy")}}
 
 
+# Focused AI-infra basket for news (kept tight to limit API calls + stay on-signal):
+# hyperscalers (demand) + memory/storage (supply) + key compute/equipment.
+AI_INFRA_NEWS_BASKET = [
+    "MSFT", "GOOGL", "AMZN", "META",          # hyperscaler demand
+    "MU", "WDC", "SNDK", "STX",               # memory / storage supply
+    "NVDA", "AVGO", "AMAT", "LRCX",           # compute + equipment
+]
+
+
+def get_ai_infra_news(days: int = 4, per_symbol: int = 5, max_total: int = 40) -> dict:
+    """Structured recent news for the AI-infrastructure basket via Finnhub.
+
+    Returns sourced, ticker-tagged headlines (per-name company_news + a little
+    general business news) as CANDIDATES for the Cycle Signals curation step — more
+    reliable than free-text web search: real source links, no hallucinated
+    attribution, dated, tagged to the basket.
+
+    Args:
+        days: lookback window for company news (default 4).
+        per_symbol: max articles kept per ticker (default 5).
+        max_total: cap on returned candidates (default 40), newest first.
+
+    Returns:
+        Dict with as_of, count, and items [{symbol, headline, source, url, summary,
+        date, related}]. The agent then curates/classifies these into ai_cycle_signals.
+    """
+    fh = get_finnhub()
+    frm = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    to = datetime.now().strftime("%Y-%m-%d")
+    seen: set[str] = set()
+    items: list[dict] = []
+
+    def _ts(a: dict) -> str | None:
+        try:
+            return datetime.fromtimestamp(a.get("datetime", 0)).strftime("%Y-%m-%d") if a.get("datetime") else None
+        except Exception:
+            return None
+
+    for sym in AI_INFRA_NEWS_BASKET:
+        try:
+            arts = fh.company_news(sym, _from=frm, to=to) or []
+        except Exception:
+            continue
+        for a in arts[:per_symbol]:
+            url = a.get("url")
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            items.append({
+                "symbol": sym,
+                "headline": a.get("headline"),
+                "source": a.get("source"),
+                "url": url,
+                "summary": (a.get("summary") or "")[:240],
+                "date": _ts(a),
+                "related": a.get("related"),
+            })
+
+    try:
+        for a in (fh.general_news("general") or [])[:10]:
+            url = a.get("url")
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            items.append({
+                "symbol": None, "headline": a.get("headline"), "source": a.get("source"),
+                "url": url, "summary": (a.get("summary") or "")[:240], "date": _ts(a), "related": a.get("related"),
+            })
+    except Exception:
+        pass
+
+    items.sort(key=lambda x: x.get("date") or "", reverse=True)
+    items = items[:max_total]
+    return {"as_of": datetime.now().isoformat(), "count": len(items), "items": items}
+
+
 # ============================================================
 # Conviction portfolio — concentrated cyclical position sizing
 # ============================================================
@@ -3112,6 +3188,7 @@ def check_live_vs_backtest_divergence() -> dict:
         snaps = (
             sb.table("equity_snapshots")
             .select("snapshot_date, portfolio_cumulative_return, spy_cumulative_return")
+            .eq("portfolio", "quant")  # divergence is for the Quant Core factor strategy
             .gte("snapshot_date", thirty_days_ago.isoformat())
             .order("snapshot_date", desc=False)
             .execute()
@@ -3120,9 +3197,20 @@ def check_live_vs_backtest_divergence() -> dict:
         if len(rows) < 5:
             return {"status": "insufficient_data", "message": f"Only {len(rows)} live snapshots in past 30d"}
 
+        # One-time corporate-action corrections (quant) — add back so a broker artifact
+        # (e.g. KLAC split) doesn't distort the live-vs-backtest divergence.
+        try:
+            _pa = sb.table("agent_memory").select("value").eq("key", "performance_adjustments").maybe_single().execute()
+            _adjs = [a for a in ((_pa.data or {}).get("value", {}).get("adjustments", []) if _pa and _pa.data else []) if (a.get("portfolio") or "quant") == "quant"]
+        except Exception:
+            _adjs = []
+
+        def _adj_pp(date_str: str) -> float:
+            return sum(float(a.get("amount") or 0) for a in _adjs if a.get("date") and a["date"] <= date_str) / 1000
+
         first, last = rows[0], rows[-1]
-        port_first = float(first["portfolio_cumulative_return"])
-        port_last = float(last["portfolio_cumulative_return"])
+        port_first = float(first["portfolio_cumulative_return"]) + _adj_pp(first["snapshot_date"])
+        port_last = float(last["portfolio_cumulative_return"]) + _adj_pp(last["snapshot_date"])
         spy_first = float(first["spy_cumulative_return"])
         spy_last = float(last["spy_cumulative_return"])
 
@@ -5184,9 +5272,10 @@ AUTONOMOUS_TOOLS = [
     assess_ai_bubble_risk,
     # AI cycle durability
     assess_ai_cycle_durability,
-    # AI super-cycle: automated capex trend + daily history snapshot
+    # AI super-cycle: automated capex trend + daily history snapshot + structured news
     compute_ai_capex_trend,
     record_ai_cycle_snapshot,
+    get_ai_infra_news,
     # Conviction portfolio: concentrated cyclical sizing
     size_cycle_position,
     send_weekly_cycle_report,

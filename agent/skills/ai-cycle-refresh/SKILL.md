@@ -57,8 +57,16 @@ names (MU/WDC/SNDK), computes YoY/QoQ, blends in your forward read, and persists
 ## Step 5 — Cycle signals (the qualitative layer the quant misses)
 
 The capex/durability scores are quantitative. This step captures the NARRATIVE
-signals that front-run them — the things that move before the numbers do. Run a few
-`internet_search` queries across these angles (rotate / prioritize what's fresh):
+signals that front-run them — the things that move before the numbers do.
+
+**Start with structured news**: call `get_ai_infra_news()` — it returns sourced,
+ticker-tagged, dated headlines for the AI-infra basket (hyperscalers + memory + key
+semis) from Finnhub. This is your primary candidate set — more reliable than free-text
+search (real source links, no hallucinated attribution). Scan it for items matching the
+angles below.
+
+**Then fill gaps with `internet_search`** for the angles company-news tags poorly —
+especially DRAM/HBM contract pricing and sector-wide financing (rotate / prioritize what's fresh):
 
 - **Demand stress** — customers pushing back on AI/token cost, ROI doubts, budget
   overruns ("AI inference cost", "AI budget overrun", "token tax margins")
