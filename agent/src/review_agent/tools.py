@@ -5,6 +5,8 @@ mutate the trader's data. Enforced by tests/test_review_tools_boundary.py.
 """
 from typing import Literal
 
+from langchain_core.runnables import RunnableConfig
+
 # Read-only evidence tools, reused from the trading agent's package
 from stock_agent.tools.memory import (
     query_database,
@@ -18,10 +20,18 @@ from review_agent.db import (
     write_review as _write_review,
     read_reviewer_memory as _read_rm,
     write_reviewer_memory as _write_rm,
+    set_active_review as _set_active,
+    get_active_review as _get_active,
 )
 from review_agent.trace import read_run_trace
-from review_agent.context import active_review_type
 from review_agent.review_memory import load_review_context
+
+
+def _thread_id(config: RunnableConfig | None) -> str:
+    tid = ((config or {}).get("configurable") or {}).get("thread_id")
+    if not tid:
+        raise ValueError("No thread_id in RunnableConfig — cannot bind the review.")
+    return tid
 
 
 def write_review(
@@ -55,10 +65,10 @@ def read_reviewer_memory(namespace: str) -> dict:
     return {"namespace": namespace, "value": mem["value"] if mem else None}
 
 
-def begin_review(review_type: str, subject: str, reason: str) -> dict:
-    """Start a review. Binds the active review type (so every reviewer_memory write
-    is namespaced to it — a raw namespace cannot be supplied) and returns the bounded
-    prior-context for this review type.
+def begin_review(review_type: str, subject: str, reason: str, config: RunnableConfig = None) -> dict:
+    """Start a review. Binds the active review type for this thread (so every
+    write_reviewer_memory call is namespaced to it — a raw namespace cannot be
+    supplied) and returns the bounded prior-context for this review type.
 
     Args:
         review_type: e.g. 'conformance'. Becomes the active namespace for writes.
@@ -67,25 +77,34 @@ def begin_review(review_type: str, subject: str, reason: str) -> dict:
 
     Returns:
         {"review_type": str, "subject": str, "context": str}
+
+    Note: `config` is injected by the runtime — not supplied by the LLM.
     """
-    active_review_type.set(review_type)
+    _set_active(_thread_id(config), review_type)
     return {"review_type": review_type, "subject": subject,
             "context": load_review_context(review_type)}
 
 
-def write_reviewer_memory(scope: Literal["detail", "global", "index"], value: dict) -> dict:
+def write_reviewer_memory(scope: Literal["detail", "global", "index"], value: dict, config: RunnableConfig = None) -> dict:
     """Write one of the reviewer's own memory scopes for the ACTIVE review.
 
-    The namespace is BOUND from the active review type (set by begin_review) — the
-    caller chooses only the scope, never a raw namespace. 'detail' →
-    '{active_review_type}:detail'; 'global'/'index' are shared scopes.
+    The namespace is BOUND from the active review type (set by begin_review and
+    persisted in Supabase keyed by thread_id) — the caller chooses only the
+    scope, never a raw namespace. 'detail' → '{active_review_type}:detail';
+    'global'/'index' are shared scopes.
+
+    Args:
+        scope: one of 'detail', 'global', 'index'.
+        value: the data to write.
 
     Raises:
-        ValueError if no review is active or the scope is invalid.
+        ValueError if no review is active for this thread or the scope is invalid.
+
+    Note: `config` is injected by the runtime — not supplied by the LLM.
     """
-    rt = active_review_type.get()
+    rt = _get_active(_thread_id(config))
     if rt is None:
-        raise ValueError("No active review — call begin_review before writing memory.")
+        raise ValueError("No active review for this thread — call begin_review first.")
     if scope == "detail":
         namespace = f"{rt}:detail"
     elif scope in ("global", "index"):

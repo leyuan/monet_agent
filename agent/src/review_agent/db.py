@@ -74,3 +74,16 @@ def write_reviewer_memory(namespace: str, value: dict) -> dict:
         .execute()
     )
     return result.data[0]
+
+
+def set_active_review(thread_id: str, review_type: str) -> dict:
+    """Persist the active review type for a thread (thread-scoped binding)."""
+    return write_reviewer_memory(f"_active:{thread_id}", {"review_type": review_type})
+
+
+def get_active_review(thread_id: str) -> str | None:
+    """Read the active review type for a thread, or None."""
+    mem = read_reviewer_memory(f"_active:{thread_id}")
+    if mem and mem.get("value"):
+        return mem["value"].get("review_type")
+    return None
