@@ -2,7 +2,7 @@
 
 import logging
 
-from stock_agent.db import read_memory
+from common.db import read_memory
 
 logger = logging.getLogger(__name__)
 

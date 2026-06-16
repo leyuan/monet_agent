@@ -37,7 +37,7 @@ from stock_agent.factor_scoring import (
     compute_quality,
     compute_value,
 )
-from stock_agent.supabase_client import get_supabase
+from common.supabase_client import get_supabase
 
 from backtest.data import load_fundamentals, load_prices
 from backtest.variants import VARIANTS, get_variant

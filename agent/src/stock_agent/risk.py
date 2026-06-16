@@ -3,7 +3,7 @@
 import logging
 from datetime import datetime, timedelta
 
-from stock_agent.db import get_risk_settings
+from common.db import get_risk_settings
 from stock_agent.market_data import get_portfolio, get_quote
 
 logger = logging.getLogger(__name__)
@@ -187,7 +187,7 @@ def _check_regime_gate() -> dict:
         and 'warning'.
     """
     try:
-        from stock_agent.db import read_memory
+        from common.db import read_memory
 
         regime_data = read_memory("market_regime")
         if not regime_data or not regime_data.get("value"):

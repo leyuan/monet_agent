@@ -10,7 +10,7 @@ from datetime import datetime
 import pandas as pd
 
 from stock_agent.factor_scoring import FactorVariant
-from stock_agent.supabase_client import get_supabase
+from common.supabase_client import get_supabase
 
 logger = logging.getLogger(__name__)
 

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 import yfinance as yf
 
-from stock_agent.supabase_client import get_supabase
+from common.supabase_client import get_supabase
 
 logger = logging.getLogger(__name__)
 

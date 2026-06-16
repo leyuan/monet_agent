@@ -4,7 +4,7 @@ import logging
 from datetime import datetime
 from typing import Literal
 
-from stock_agent.db import (
+from common.db import (
     add_to_watchlist,
     get_watchlist,
     read_all_memory,
@@ -13,7 +13,7 @@ from stock_agent.db import (
     write_journal as db_write_journal,
     write_memory as db_write_memory,
 )
-from stock_agent.supabase_client import get_supabase
+from common.supabase_client import get_supabase
 
 logger = logging.getLogger(__name__)
 

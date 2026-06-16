@@ -9,14 +9,14 @@ import httpx
 import yfinance as yf
 from langgraph_sdk import get_sync_client
 
-from stock_agent.db import (
+from common.db import (
     get_equity_snapshots,
     get_risk_settings,
     read_memory,
     record_equity_snapshot as db_record_equity_snapshot,
 )
 from stock_agent.market_data import get_historical_bars, get_portfolio, get_quote
-from stock_agent.supabase_client import get_supabase
+from common.supabase_client import get_supabase
 
 logger = logging.getLogger(__name__)
 

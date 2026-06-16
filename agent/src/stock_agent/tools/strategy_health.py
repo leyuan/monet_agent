@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 
 from stock_agent.market_data import get_sp500_sp400_tickers
-from stock_agent.supabase_client import get_supabase
+from common.supabase_client import get_supabase
 from stock_agent.tools._shared import _load_factor_weights
 
 logger = logging.getLogger(__name__)

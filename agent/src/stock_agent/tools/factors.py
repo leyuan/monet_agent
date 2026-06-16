@@ -9,7 +9,7 @@ import pandas as pd
 import yfinance as yf
 from tavily import TavilyClient
 
-from stock_agent.db import get_watchlist, read_memory, write_memory as db_write_memory
+from common.db import get_watchlist, read_memory, write_memory as db_write_memory
 from stock_agent.market_data import (
     get_historical_bars,
     get_portfolio,

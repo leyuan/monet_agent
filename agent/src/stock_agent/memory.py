@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta
 
-from stock_agent.db import read_memory, write_memory, read_all_memory, read_journal
+from common.db import read_memory, write_memory, read_all_memory, read_journal
 
 
 def load_agent_context() -> str:
@@ -216,7 +216,7 @@ def _load_agent_context_inner() -> str:
 
     # --- Performance vs Benchmark ---
     try:
-        from stock_agent.db import get_equity_snapshots
+        from common.db import get_equity_snapshots
         snapshots = get_equity_snapshots(days=7)
         if snapshots:
             latest = snapshots[0]  # newest first

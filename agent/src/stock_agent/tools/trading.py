@@ -15,7 +15,7 @@ from alpaca.trading.requests import (
 from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass
 
 from stock_agent.alpaca_client import get_trading_client
-from stock_agent.db import (
+from common.db import (
     create_trade,
     update_trade,
     get_risk_settings,
@@ -25,7 +25,7 @@ from stock_agent.db import (
 )
 from stock_agent.market_data import get_portfolio, get_quote
 from stock_agent.risk import check_risk
-from stock_agent.supabase_client import get_supabase
+from common.supabase_client import get_supabase
 from stock_agent.tools.market import get_historical_data
 
 logger = logging.getLogger(__name__)
@@ -191,7 +191,7 @@ def place_order(
     # Clear re-entry guard if this was a stopped symbol
     if side == "buy":
         try:
-            from stock_agent.db import delete_memory
+            from common.db import delete_memory
 
             delete_memory(f"stopped:{symbol}")
         except Exception:
