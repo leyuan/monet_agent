@@ -7,6 +7,7 @@ CREATE TABLE equity_snapshots (
   portfolio_cumulative_return numeric(8,4),
   spy_cumulative_return numeric(8,4),
   alpha numeric(8,4),
+  deployed_pct numeric DEFAULT 0,
   created_at timestamptz DEFAULT now()
 );
 
