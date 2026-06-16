@@ -54,6 +54,30 @@ def test_reviewer_memory_roundtrip(local_supabase):
         local_supabase.table("reviewer_memory").delete().eq("namespace", ns).execute()
 
 
+def test_versioning_and_revert_roundtrip(local_supabase):
+    """write_reviewer_memory archives prior values; revert_reviewer_memory restores them."""
+    ns = f"itest:{uuid.uuid4()}"
+    hist_ns = f"{ns}:__history"
+    try:
+        # Write A then B — B is current, A should be in history
+        rdb.write_reviewer_memory(ns, {"v": "A"})
+        rdb.write_reviewer_memory(ns, {"v": "B"})
+
+        assert rdb.read_reviewer_memory(ns)["value"] == {"v": "B"}
+
+        hist = rdb.read_reviewer_memory(hist_ns)
+        assert hist is not None, "history namespace must exist after two writes"
+        assert isinstance(hist["value"], list), "history value must be a list"
+        assert hist["value"][0] == {"v": "A"}, "most-recent prior value must be first in history"
+
+        # Revert → should restore A
+        rdb.revert_reviewer_memory(ns)
+        assert rdb.read_reviewer_memory(ns)["value"] == {"v": "A"}
+    finally:
+        local_supabase.table("reviewer_memory").delete().eq("namespace", ns).execute()
+        local_supabase.table("reviewer_memory").delete().eq("namespace", hist_ns).execute()
+
+
 def test_cross_turn_active_review_binding(local_supabase):
     """THE Option A validation: begin_review (turn 1) persists the active review;
     write_reviewer_memory (turn 2, SEPARATE call) reads it back via thread_id and

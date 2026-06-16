@@ -65,14 +65,46 @@ def read_reviewer_memory(namespace: str) -> dict | None:
         return None
 
 
+_HISTORY_CAP = 5
+
+
 def write_reviewer_memory(namespace: str, value: dict) -> dict:
-    """Upsert one reviewer_memory entry."""
+    """Upsert a reviewer_memory entry, preserving the prior value in a capped
+    history namespace ('{namespace}:__history') so a write can be reverted."""
     sb = get_supabase()
-    result = (
-        sb.table("reviewer_memory")
-        .upsert({"namespace": namespace, "value": value, "updated_at": "now()"}, on_conflict="namespace")
-        .execute()
-    )
+    current = read_reviewer_memory(namespace)
+    if current and current.get("value") is not None:
+        hist_ns = f"{namespace}:__history"
+        hist = read_reviewer_memory(hist_ns)
+        versions = hist["value"] if hist and isinstance(hist.get("value"), list) else []
+        versions = [current["value"], *versions][:_HISTORY_CAP]
+        sb.table("reviewer_memory").upsert(
+            {"namespace": hist_ns, "value": versions, "updated_at": "now()"},
+            on_conflict="namespace",
+        ).execute()
+    result = sb.table("reviewer_memory").upsert(
+        {"namespace": namespace, "value": value, "updated_at": "now()"},
+        on_conflict="namespace",
+    ).execute()
+    return result.data[0]
+
+
+def revert_reviewer_memory(namespace: str) -> dict | None:
+    """Restore the most recent prior value from history. Returns the restored row, or None
+    if there is no history. (Recovery operation — not exposed as an LLM tool in v1.)"""
+    sb = get_supabase()
+    hist_ns = f"{namespace}:__history"
+    hist = read_reviewer_memory(hist_ns)
+    versions = hist["value"] if hist and isinstance(hist.get("value"), list) else []
+    if not versions:
+        return None
+    restored, rest = versions[0], versions[1:]
+    sb.table("reviewer_memory").upsert(
+        {"namespace": hist_ns, "value": rest, "updated_at": "now()"}, on_conflict="namespace"
+    ).execute()
+    result = sb.table("reviewer_memory").upsert(
+        {"namespace": namespace, "value": restored, "updated_at": "now()"}, on_conflict="namespace"
+    ).execute()
     return result.data[0]
 
 
