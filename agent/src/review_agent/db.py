@@ -108,6 +108,23 @@ def revert_reviewer_memory(namespace: str) -> dict | None:
     return result.data[0]
 
 
+_ROUTING_LOG_CAP = 50
+
+
+def append_routing_log(entry: dict, cap: int = _ROUTING_LOG_CAP) -> None:
+    """Append a routing decision to the capped 'routing_log' namespace (newest-first).
+    Written directly (NOT via write_reviewer_memory) so it doesn't accumulate version
+    history — the log is itself the history."""
+    sb = get_supabase()
+    current = read_reviewer_memory("routing_log")
+    log = current["value"] if (current and isinstance(current.get("value"), list)) else []
+    log = [entry, *log][:cap]
+    sb.table("reviewer_memory").upsert(
+        {"namespace": "routing_log", "value": log, "updated_at": "now()"},
+        on_conflict="namespace",
+    ).execute()
+
+
 def set_active_review(thread_id: str, review_type: str) -> dict:
     """Persist the active review type for a thread (thread-scoped binding)."""
     return write_reviewer_memory(f"_active:{thread_id}", {"review_type": review_type})

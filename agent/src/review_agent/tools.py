@@ -23,6 +23,7 @@ from review_agent.db import (
     write_reviewer_memory as _write_rm,
     set_active_review as _set_active,
     get_active_review as _get_active,
+    append_routing_log as _append_routing_log,
 )
 from review_agent.trace import read_run_trace
 from review_agent.review_memory import load_review_context
@@ -68,23 +69,15 @@ def read_reviewer_memory(namespace: str) -> dict:
 
 
 def begin_review(review_type: str, subject: str, reason: str, config: RunnableConfig = None) -> dict:
-    """Start a review. Binds the active review type for this thread (so every
-    write_reviewer_memory call is namespaced to it — a raw namespace cannot be
-    supplied) and returns the bounded prior-context for this review type.
-
-    Args:
-        review_type: e.g. 'conformance'. Becomes the active namespace for writes.
-        subject: what is being reviewed (run id / date / description).
-        reason: why this review type was chosen.
-
-    Returns:
-        {"review_type": str, "subject": str, "context": str}
-
-    Note: `config` is injected by the runtime — not supplied by the LLM.
-    """
-    _set_active(_thread_id(config), review_type)
-    return {"review_type": review_type, "subject": subject,
-            "context": load_review_context(review_type)}
+    """Start a review: bind the active review type for this thread, log the routing
+    decision, and return the bounded prior-context. `config` is injected by the runtime."""
+    tid = _thread_id(config)
+    _set_active(tid, review_type)
+    _append_routing_log({
+        "review_type": review_type, "subject": subject, "reason": reason,
+        "thread_id": tid, "ts": date.today().isoformat(),
+    })
+    return {"review_type": review_type, "subject": subject, "context": load_review_context(review_type)}
 
 
 def write_reviewer_memory(scope: Literal["detail", "global", "index"], value: dict, config: RunnableConfig = None) -> dict:

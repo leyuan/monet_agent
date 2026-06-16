@@ -124,3 +124,16 @@ def test_promote_to_global_gate_live(local_supabase):
         # local test DB only — remove the global rows we touched
         local_supabase.table("reviewer_memory").delete().eq("namespace", "global").execute()
         local_supabase.table("reviewer_memory").delete().eq("namespace", "global:__history").execute()
+
+
+def test_begin_review_writes_routing_log(local_supabase):
+    from review_agent import tools as rtools
+    thread_id = f"itest-route-{uuid.uuid4()}"
+    reason = f"reason-{uuid.uuid4()}"
+    try:
+        rtools.begin_review("conformance", "run-x", reason, config=_cfg(thread_id))
+        log = rdb.read_reviewer_memory("routing_log")
+        assert any(e.get("reason") == reason for e in log["value"])
+    finally:
+        local_supabase.table("reviewer_memory").delete().eq("namespace", f"_active:{thread_id}").execute()
+        local_supabase.table("reviewer_memory").delete().eq("namespace", "routing_log").execute()

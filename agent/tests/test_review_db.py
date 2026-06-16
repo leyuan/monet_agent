@@ -88,3 +88,17 @@ def test_write_reviewer_memory_archives_prior_value(mock_get, mock_read):
     # The main write must contain the new value
     main_call = next(c for c in upsert_calls if c[0][0]["namespace"] == ns)
     assert main_call[0][0]["value"] == new_value
+
+
+@patch("review_agent.db.read_reviewer_memory")
+@patch("review_agent.db.get_supabase")
+def test_append_routing_log_prepends_and_caps(mock_get, mock_read):
+    sb = MagicMock(); mock_get.return_value = sb
+    existing = [{"i": n} for n in range(50)]
+    mock_read.return_value = {"value": existing}
+    from review_agent.db import append_routing_log
+    append_routing_log({"i": "new"}, cap=50)
+    payload = sb.table.return_value.upsert.call_args[0][0]
+    assert payload["namespace"] == "routing_log"
+    assert payload["value"][0] == {"i": "new"}      # newest first
+    assert len(payload["value"]) == 50               # capped

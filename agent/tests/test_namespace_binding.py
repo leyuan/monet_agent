@@ -19,6 +19,7 @@ def test_write_detail_resolves_to_active_namespace(monkeypatch):
     monkeypatch.setattr("review_agent.tools._write_rm",
                         lambda ns, val: captured.update(ns=ns) or {"namespace": ns})
 
+    monkeypatch.setattr("review_agent.tools._append_routing_log", lambda *a, **k: None)
     from review_agent.tools import begin_review, write_reviewer_memory
     begin_review("conformance", "run-x", "asked for conformance", config=FAKE_CONFIG)
     write_reviewer_memory("detail", {"a": 1}, config=FAKE_CONFIG)
@@ -43,6 +44,7 @@ def test_global_scope_resolves_to_global(monkeypatch):
     monkeypatch.setattr("review_agent.tools._write_rm",
                         lambda ns, val: captured.update(ns=ns) or {"namespace": ns})
 
+    monkeypatch.setattr("review_agent.tools._append_routing_log", lambda *a, **k: None)
     from review_agent.tools import begin_review, write_reviewer_memory
     begin_review("conformance", "s", "r", config=FAKE_CONFIG)
     write_reviewer_memory("global", {"x": 1}, config=FAKE_CONFIG)
