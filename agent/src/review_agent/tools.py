@@ -3,6 +3,7 @@
 Capability boundary: this list contains NO trading tools and NO tools that
 mutate the trader's data. Enforced by tests/test_review_tools_boundary.py.
 """
+from datetime import date
 from typing import Literal
 
 from langchain_core.runnables import RunnableConfig
@@ -25,6 +26,7 @@ from review_agent.db import (
 )
 from review_agent.trace import read_run_trace
 from review_agent.review_memory import load_review_context
+from review_agent.insights import stamp_insight
 
 
 def _thread_id(config: RunnableConfig | None) -> str:
@@ -115,6 +117,35 @@ def write_reviewer_memory(scope: Literal["detail", "global", "index"], value: di
     return {"namespace": namespace, "scope": scope, "status": "written"}
 
 
+def promote_to_global(text: str, justification: str, corroborating_review_ids: list[str]) -> dict:
+    """Promote an insight to the GLOBAL scope (loaded into every review). Gated: requires
+    >= 2 corroborating review ids, else rejects and writes nothing. On success, stamps the
+    insight into global's patterns with the justification attached.
+
+    Args:
+        text: the insight (e.g. 'agent rationalizes momentum in low-VIX regimes').
+        justification: why this generalizes to ALL reviews.
+        corroborating_review_ids: ids of reviews that evidence this (>= 2 required).
+
+    Returns:
+        {"status": "promoted", "text": str} or {"status": "rejected", "reason": str}.
+    """
+    if len(corroborating_review_ids) < 2:
+        return {"status": "rejected",
+                "reason": "global promotion requires >= 2 corroborating review ids"}
+    current = _read_rm("global")
+    value = current["value"] if (current and isinstance(current.get("value"), dict)) else {}
+    patterns = value.get("patterns", [])
+    stamp_insight(patterns, text, corroborating_review_ids, date.today().isoformat())
+    for p in patterns:
+        if p["text"] == text:
+            p["justification"] = justification
+            break
+    value["patterns"] = patterns
+    _write_rm("global", value)
+    return {"status": "promoted", "text": text}
+
+
 REVIEW_TOOLS = [
     # evidence (read-only)
     query_database,
@@ -127,4 +158,5 @@ REVIEW_TOOLS = [
     write_review,
     read_reviewer_memory,
     write_reviewer_memory,
+    promote_to_global,
 ]

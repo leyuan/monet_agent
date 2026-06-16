@@ -108,3 +108,19 @@ def test_cross_turn_active_review_binding(local_supabase):
     finally:
         local_supabase.table("reviewer_memory").delete().eq("namespace", f"_active:{thread_id}").execute()
         local_supabase.table("reviewer_memory").delete().eq("namespace", detail_ns).execute()
+
+
+def test_promote_to_global_gate_live(local_supabase):
+    from review_agent.tools import promote_to_global
+    text = f"itest insight {uuid.uuid4()}"
+    try:
+        assert promote_to_global(text, "j", ["only-one"])["status"] == "rejected"
+        assert promote_to_global(text, "because", ["ra", "rb"])["status"] == "promoted"
+        glob = rdb.read_reviewer_memory("global")
+        entry = next(p for p in glob["value"]["patterns"] if p["text"] == text)
+        assert entry["source_review_ids"] == ["ra", "rb"]
+        assert entry["justification"] == "because"
+    finally:
+        # local test DB only — remove the global rows we touched
+        local_supabase.table("reviewer_memory").delete().eq("namespace", "global").execute()
+        local_supabase.table("reviewer_memory").delete().eq("namespace", "global:__history").execute()
