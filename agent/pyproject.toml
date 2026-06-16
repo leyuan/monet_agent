@@ -32,3 +32,6 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["src"]
 asyncio_mode = "auto"
+markers = [
+    "integration: tests that hit a local Supabase database (gated by RUN_DB_INTEGRATION=1)",
+]
