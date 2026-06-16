@@ -4148,12 +4148,27 @@ def get_performance_comparison(days: int = 30) -> dict:
     # Snapshots come newest-first, reverse for chronological
     snapshots = list(reversed(snapshots))
 
+    # One-time corporate-action corrections (Quant Core): add back a fixed-$ artifact
+    # to every snapshot on/after its date, so a broker bug (e.g. KLAC's split being
+    # mishandled) doesn't drag the strategy's measured return. Matches dashboard + email.
+    try:
+        _pa = get_supabase().table("agent_memory").select("value").eq("key", "performance_adjustments").maybe_single().execute()
+        _adjs = [a for a in ((_pa.data or {}).get("value", {}).get("adjustments", []) if _pa and _pa.data else []) if (a.get("portfolio") or "quant") == "quant"]
+    except Exception:
+        _adjs = []
+
+    def _adj_at(date_str: str) -> float:
+        return sum(float(a.get("amount") or 0) for a in _adjs if a.get("date") and a["date"] <= date_str)
+
+    def _eq(s) -> float:
+        return float(s["portfolio_equity"]) + _adj_at(s["snapshot_date"])
+
     latest = snapshots[-1]
     oldest = snapshots[0]
 
-    # Period return (not cumulative from inception — just this window)
-    oldest_equity = float(oldest["portfolio_equity"])
-    latest_equity = float(latest["portfolio_equity"])
+    # Period return (this window) on adjusted equity
+    oldest_equity = _eq(oldest)
+    latest_equity = _eq(latest)
     oldest_spy = float(oldest["spy_close"])
     latest_spy = float(latest["spy_close"])
 
@@ -4161,25 +4176,30 @@ def get_performance_comparison(days: int = 30) -> dict:
     period_spy_return = round((latest_spy / oldest_spy - 1) * 100, 2) if oldest_spy else 0
     period_alpha = round(period_portfolio_return - period_spy_return, 2)
 
-    # Max drawdown
+    # Max drawdown (on adjusted equity)
     peak = 0
     max_dd = 0
     for s in snapshots:
-        eq = float(s["portfolio_equity"])
+        eq = _eq(s)
         peak = max(peak, eq)
         dd = (peak - eq) / peak * 100 if peak > 0 else 0
         max_dd = max(max_dd, dd)
 
-    # Time series for charting
+    # Time series for charting (adjusted cumulative return; +$/100k → pp)
     series = [
         {
             "date": s["snapshot_date"],
-            "portfolio": float(s.get("portfolio_cumulative_return") or 0),
+            "portfolio": round(float(s.get("portfolio_cumulative_return") or 0) + _adj_at(s["snapshot_date"]) / 1000, 4),
             "spy": float(s.get("spy_cumulative_return") or 0),
-            "alpha": float(s.get("alpha") or 0),
+            "alpha": round(float(s.get("alpha") or 0) + _adj_at(s["snapshot_date"]) / 1000, 4),
         }
         for s in snapshots
     ]
+
+    latest_adj_pp = _adj_at(latest["snapshot_date"]) / 1000
+    cum_port = round(float(latest.get("portfolio_cumulative_return") or 0) + latest_adj_pp, 2)
+    cum_spy = round(float(latest.get("spy_cumulative_return") or 0), 2)
+    total_adj = sum(float(a.get("amount") or 0) for a in _adjs)
 
     return {
         "period_days": len(snapshots),
@@ -4187,11 +4207,16 @@ def get_performance_comparison(days: int = 30) -> dict:
         "spy_return_pct": period_spy_return,
         "alpha_pct": period_alpha,
         "max_drawdown_pct": round(max_dd, 2),
-        "latest_equity": latest_equity,
+        "latest_equity": round(latest_equity, 2),
         "latest_date": latest["snapshot_date"],
-        "cumulative_portfolio_return": float(latest.get("portfolio_cumulative_return") or 0),
-        "cumulative_spy_return": float(latest.get("spy_cumulative_return") or 0),
-        "cumulative_alpha": float(latest.get("alpha") or 0),
+        "cumulative_portfolio_return": cum_port,
+        "cumulative_spy_return": cum_spy,
+        "cumulative_alpha": round(cum_port - cum_spy, 2),
+        "adjustment_applied_usd": round(total_adj, 2),
+        "adjustment_note": (
+            f"Includes a +${total_adj / 1000:.1f}k one-time corporate-action correction (KLAC split artifact)."
+            if total_adj else None
+        ),
         "series": series,
     }
 

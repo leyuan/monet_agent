@@ -53,7 +53,12 @@ If any insight challenges a thesis or raises a risk, incorporate it. Otherwise s
 ## Step 6: Write Reflection
 
 Create a journal entry of type "reflection". Keep it **tight — data table + bullet points only**:
-- Portfolio summary: equity, daily P&L, alpha vs SPY (2-3 lines)
+- Portfolio summary: equity, daily P&L, alpha vs SPY (2-3 lines). **Use the numbers from
+  `get_performance_comparison()`** for return/alpha — it already applies one-time
+  corporate-action corrections (e.g. the KLAC split artifact), so your figures match the
+  dashboard and daily email. Do NOT hand-compute alpha from raw equity (that re-introduces
+  the artifact). If its `adjustment_note` is present, add that one line so the correction
+  is disclosed.
 - Position table: symbol, entry, current, P&L%, composite score, status
 - Factor observations: 1-2 bullets max, only if notable
 - Tomorrow's focus: 1-2 bullets
