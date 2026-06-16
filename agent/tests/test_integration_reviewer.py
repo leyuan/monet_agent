@@ -137,3 +137,23 @@ def test_begin_review_writes_routing_log(local_supabase):
     finally:
         local_supabase.table("reviewer_memory").delete().eq("namespace", f"_active:{thread_id}").execute()
         local_supabase.table("reviewer_memory").delete().eq("namespace", "routing_log").execute()
+
+
+def test_record_insight_live(local_supabase):
+    from review_agent import tools as rtools
+    thread_id = f"itest-ri-{uuid.uuid4()}"
+    cfg = _cfg(thread_id)
+    text = f"insight {uuid.uuid4()}"
+    try:
+        rtools.begin_review("conformance", "run-x", "r", config=cfg)
+        rtools.record_insight(text, ["r1"], config=cfg)
+        rtools.record_insight(text, ["r2"], config=cfg)   # 2nd corroboration
+        detail = rdb.read_reviewer_memory("conformance:detail")
+        entry = next(p for p in detail["value"]["patterns"] if p["text"] == text)
+        assert entry["count"] == 2
+        assert entry["source_review_ids"] == ["r1", "r2"]
+    finally:
+        local_supabase.table("reviewer_memory").delete().eq("namespace", f"_active:{thread_id}").execute()
+        local_supabase.table("reviewer_memory").delete().eq("namespace", "conformance:detail").execute()
+        local_supabase.table("reviewer_memory").delete().eq("namespace", "conformance:detail:__history").execute()
+        local_supabase.table("reviewer_memory").delete().eq("namespace", "routing_log").execute()

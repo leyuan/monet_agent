@@ -110,6 +110,32 @@ def write_reviewer_memory(scope: Literal["detail", "global", "index"], value: di
     return {"namespace": namespace, "scope": scope, "status": "written"}
 
 
+def record_insight(text: str, source_review_ids: list[str], config: RunnableConfig = None) -> dict:
+    """Merge a provenance-stamped insight into the ACTIVE review's standing DETAIL memory.
+    Confidence is derived from corroboration count (low until seen 3x, then established) — the
+    deterministic logic lives here, not in the LLM. Use this (not raw write_reviewer_memory) to
+    record recurring/material findings during consolidation. The namespace is bound by begin_review.
+
+    Args:
+        text: the standing observation (e.g. 'anti-churn respected across the week').
+        source_review_ids: review ids that evidence this observation.
+
+    Returns:
+        {"namespace": str, "patterns": int} — the detail namespace and current pattern count.
+    """
+    rt = _get_active(_thread_id(config))
+    if rt is None:
+        raise ValueError("No active review — call begin_review first.")
+    namespace = f"{rt}:detail"
+    current = _read_rm(namespace)
+    value = current["value"] if (current and isinstance(current.get("value"), dict)) else {}
+    patterns = value.get("patterns", [])
+    stamp_insight(patterns, text, source_review_ids, date.today().isoformat())
+    value["patterns"] = patterns
+    _write_rm(namespace, value)
+    return {"namespace": namespace, "patterns": len(patterns)}
+
+
 def promote_to_global(text: str, justification: str, corroborating_review_ids: list[str]) -> dict:
     """Promote an insight to the GLOBAL scope (loaded into every review). Gated: requires
     >= 2 corroborating review ids, else rejects and writes nothing. On success, stamps the
@@ -151,5 +177,6 @@ REVIEW_TOOLS = [
     write_review,
     read_reviewer_memory,
     write_reviewer_memory,
+    record_insight,
     promote_to_global,
 ]
