@@ -14,7 +14,15 @@ K_RECENT = 5
 def _fmt(mem: dict | None) -> str:
     if not mem or not mem.get("value"):
         return "(none yet — fresh)"
-    return json.dumps(mem["value"], indent=2)
+    value = mem["value"]
+    patterns = value.get("patterns") if isinstance(value, dict) else None
+    if isinstance(patterns, list) and patterns and all(isinstance(p, dict) and "text" in p for p in patterns):
+        lines = []
+        for p in patterns:
+            tag = "" if p.get("confidence") == "established" else " (unconfirmed)"
+            lines.append(f"- {p['text']}{tag} [count={p.get('count')}, {p.get('first_seen')}→{p.get('last_seen')}]")
+        return "\n".join(lines)
+    return json.dumps(value, indent=2)
 
 
 def load_review_context(review_type: str) -> str:
