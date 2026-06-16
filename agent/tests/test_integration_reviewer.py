@@ -68,11 +68,15 @@ def test_cross_turn_active_review_binding(local_supabase):
         assert rdb.get_active_review(thread_id) == "conformance"
 
         # Turn 2 (separate call): write detail — namespace derived from thread's active review.
-        out = rtools.write_reviewer_memory("detail", {"k": uuid.uuid4().hex}, config=cfg)
+        marker = uuid.uuid4().hex
+        out = rtools.write_reviewer_memory("detail", {"k": marker}, config=cfg)
         assert out["namespace"] == detail_ns
 
-        # And it actually persisted under the bound namespace.
-        assert rdb.read_reviewer_memory(detail_ns) is not None
+        # And THIS run's value actually persisted under the bound namespace. Round-trip the
+        # unique marker (not just `is not None`) so a stale leftover from a prior failed run
+        # cannot produce a false pass.
+        got = rdb.read_reviewer_memory(detail_ns)
+        assert got is not None and got["value"]["k"] == marker
 
         # A thread with no begin_review has no active review -> write raises.
         with pytest.raises(ValueError):
