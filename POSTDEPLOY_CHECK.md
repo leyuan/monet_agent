@@ -6,6 +6,17 @@ Ongoing checklist of features/behaviors to verify after deployment. When reviewi
 
 ## Pending Verification
 
+### Reviewer Agent — Phase 1 (first on-demand conformance review)
+**Trigger**: First `review-strategy-conformance` run once Anthropic credits are restored and the reviewer graph is deployed to LangGraph Platform.
+- [ ] `begin_review` binds the active review type: `_active:{thread_id}` key written to `reviewer_memory` before any verdict logic runs, resolves to `conformance:detail` namespace
+- [ ] `write_review` persists a row in `agent_reviews` with `severity`, `evidence_refs`, and `reviewer_thread_id` populated (no nulls)
+- [ ] `record_insight` merges a provenance-stamped pattern into `conformance:detail`: check that `count` increments and `confidence` is derived (not hardcoded), and that `source_review_ids` lists the originating review
+- [ ] `read_run_trace` returns the target run's tool call sequence from LangSmith project `monet_agent` (non-empty `steps` array; errors if run_id not found)
+- [ ] Capability boundary holds: reviewer invocation never surfaces `place_order`, `write_agent_memory`, `write_journal`, or any other trading/write tool — allowlist test green in CI
+- [ ] Cross-turn binding works in deployed runtime: `begin_review` in turn 1 sets the binding; `record_insight` and `write_reviewer_memory` in later turns resolve the same namespace without re-passing it explicitly
+- [ ] `promote_to_global` rejects promotion when fewer than 2 corroborating reviews exist: response includes `"rejected"` status and lists missing corroboration count
+- [ ] All routing decisions (skill dispatch, refuse, escalate) land a row in `routing_log` with `decision`, `skill`, and `reason` fields
+
 ### Tier 1 Strategy Health Monitoring (first runs after Apr 17 deploy)
 **Trigger**: Next Sunday weekly review + next EOD reflection.
 - [ ] Weekly review Step 8 runs `audit_factor_ic()` without error; completes in < 10 min

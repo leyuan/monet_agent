@@ -11,6 +11,18 @@ interface ReleaseEntry {
 
 const RELEASES: ReleaseEntry[] = [
   {
+    version: "v1.6",
+    date: "Jun 15",
+    title: "Reviewer Agent (Phase 1)",
+    items: [
+      "Independent read-only auditor agent (3rd LangGraph graph) that reviews Monet's trading decisions without any ability to place orders or modify state",
+      "Namespaced reviewer memory (reviewer_memory table) seeded only from priors — never from the verdict being formed, preventing circular reasoning",
+      "Capability boundary enforced via REVIEW_TOOLS allowlist: all trading and memory-write tools are absent; unit-tested in CI",
+      "First review skill: review-strategy-conformance — audits whether autonomous loop decisions follow stated factor-based strategy rules",
+      "Memory hardening: thread-scoped active-review binding, versioned/reversible writes, provenance-stamped insights, confidence quarantine (low → established by corroboration), gated global promotion (≥2 reviews required)",
+    ],
+  },
+  {
     version: "v1.5",
     date: "Apr 17",
     title: "Tier 1 Strategy Health Monitoring & Self-Adjustment Loop",
