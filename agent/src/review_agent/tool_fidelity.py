@@ -127,3 +127,30 @@ def analyze_tool_fidelity(run: dict, phase: str) -> dict:
         "runtime_ms": sum(durations) if durations else None,
         "token_usage": run.get("total_tokens"),
     }
+
+
+_GRAPH = "autonomous_loop"
+
+
+def select_unreviewed(roots: list[dict], cursor: dict | None, *, cold_start_n: int) -> list[dict]:
+    """roots newest-first. Returns runs to review, OLDEST-first (so the watermark advances
+    monotonically as each is processed)."""
+    if cursor is None:
+        chosen = roots[:cold_start_n]
+    else:
+        seen = set(cursor.get("reviewed_run_ids", []))
+        chosen = [r for r in roots if r["run_id"] not in seen]
+    return list(reversed(chosen))
+
+
+def advance_cursor(cursor: dict | None, run_id: str, start_time: str, *,
+                   baseline: dict | None = None, cap: int = 50) -> dict:
+    cursor = dict(cursor or {})
+    ids = [run_id, *cursor.get("reviewed_run_ids", [])][:cap]
+    out = {
+        "graph": _GRAPH,
+        "last_reviewed_start_time": start_time,
+        "reviewed_run_ids": ids,
+        "baseline": {**cursor.get("baseline", {}), **(baseline or {})},
+    }
+    return out
