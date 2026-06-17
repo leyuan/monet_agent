@@ -125,6 +125,22 @@ def append_routing_log(entry: dict, cap: int = _ROUTING_LOG_CAP) -> None:
     ).execute()
 
 
+def read_watermark(review_type: str) -> dict | None:
+    """Read the code-managed tool-fidelity cursor for a review type."""
+    mem = read_reviewer_memory(f"{review_type}:watermark")
+    return mem["value"] if (mem and isinstance(mem.get("value"), dict)) else None
+
+
+def write_watermark(review_type: str, cursor: dict) -> None:
+    """Upsert the cursor directly (NOT via write_reviewer_memory) so it doesn't accrue
+    version history — it is operational state, not an insight. Mirrors append_routing_log."""
+    sb = get_supabase()
+    sb.table("reviewer_memory").upsert(
+        {"namespace": f"{review_type}:watermark", "value": cursor, "updated_at": "now()"},
+        on_conflict="namespace",
+    ).execute()
+
+
 def set_active_review(thread_id: str, review_type: str) -> dict:
     """Persist the active review type for a thread (thread-scoped binding)."""
     return write_reviewer_memory(f"_active:{thread_id}", {"review_type": review_type})

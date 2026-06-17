@@ -24,10 +24,16 @@ from review_agent.db import (
     set_active_review as _set_active,
     get_active_review as _get_active,
     append_routing_log as _append_routing_log,
+    read_watermark as _read_watermark,
+    write_watermark as _write_watermark,
 )
 from review_agent.trace import read_run_trace
 from review_agent.review_memory import load_review_context
 from review_agent.insights import stamp_insight
+from review_agent.tool_fidelity import (
+    identify_phase, analyze_tool_fidelity, select_unreviewed, advance_cursor,
+)
+from datetime import datetime as _dt
 
 
 def _thread_id(config: RunnableConfig | None) -> str:
@@ -165,6 +171,53 @@ def promote_to_global(text: str, justification: str, corroborating_review_ids: l
     return {"status": "promoted", "text": text}
 
 
+_COLD_START_N = 3
+
+
+def _is_weekend(start_time: str) -> bool:
+    try:
+        return _dt.fromisoformat(start_time).weekday() >= 5
+    except (ValueError, TypeError):
+        return False
+
+
+def get_tool_fidelity_runs(subject: str | None = None, config: RunnableConfig = None) -> dict:
+    """Resolve the trader runs to audit and return their DETERMINISTIC tool-fidelity facts.
+
+    Sweep mode (subject is None): returns runs newer than the tool-fidelity watermark.
+    Explicit mode (subject is a run_id): returns just that run. You INTERPRET the facts,
+    write a verdict per run with write_review, then call mark_run_reviewed(run_id, start_time).
+
+    Returns: {"runs": [{"run_id","start_time","facts": {...}}]}.
+    """
+    rt = _get_active(_thread_id(config))
+    if rt is None:
+        raise ValueError("No active review — call begin_review first.")
+    if subject:
+        roots = read_run_trace(run_id=subject)["runs"]
+    else:
+        cursor = _read_watermark(rt)
+        all_runs = read_run_trace(limit=10)["runs"]  # newest-first
+        roots = select_unreviewed(all_runs, cursor, cold_start_n=_COLD_START_N)
+    out = []
+    for run in roots:
+        phase = identify_phase(run, weekend=_is_weekend(run["start_time"]))
+        out.append({"run_id": run["run_id"], "start_time": run["start_time"],
+                    "facts": analyze_tool_fidelity(run, phase)})
+    return {"runs": out}
+
+
+def mark_run_reviewed(run_id: str, start_time: str, config: RunnableConfig = None) -> dict:
+    """Advance the tool-fidelity watermark past a run. Call ONLY after its verdict is
+    written (advance-on-success), so a failed review re-audits the run next time."""
+    rt = _get_active(_thread_id(config))
+    if rt is None:
+        raise ValueError("No active review — call begin_review first.")
+    cursor = advance_cursor(_read_watermark(rt), run_id, start_time)
+    _write_watermark(rt, cursor)
+    return {"status": "marked", "run_id": run_id}
+
+
 REVIEW_TOOLS = [
     # evidence (read-only)
     query_database,
@@ -179,4 +232,7 @@ REVIEW_TOOLS = [
     write_reviewer_memory,
     record_insight,
     promote_to_global,
+    # tool-fidelity audit + watermark
+    get_tool_fidelity_runs,
+    mark_run_reviewed,
 ]

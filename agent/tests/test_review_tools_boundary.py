@@ -19,6 +19,8 @@ ALLOWED = {
     "write_reviewer_memory",
     "promote_to_global",
     "record_insight",
+    "get_tool_fidelity_runs",
+    "mark_run_reviewed",
 }
 
 # SECONDARY guard = explicit denylist of the most dangerous trader-mutating /
