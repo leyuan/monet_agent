@@ -48,6 +48,3 @@ agent/backtest/.cache/
 
 # Local one-off dev trigger scripts (kept local, never committed)
 agent/scripts/run_*_local.py
-
-# Reviewer runtime: large tool-result offload (deepagents FilesystemBackend), never commit
-agent/src/review_agent/large_tool_results/

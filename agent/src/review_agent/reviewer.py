@@ -3,15 +3,19 @@ import os
 from pathlib import Path
 
 from deepagents import create_deep_agent
-from deepagents.backends import FilesystemBackend
+from deepagents.backends import CompositeBackend, FilesystemBackend, StateBackend
 
 from stock_agent.middleware import handle_tool_errors, retry_middleware
 from review_agent.tools import REVIEW_TOOLS
 
-# review_agent/ — skills/ is co-located here, so skills=["/skills/"] resolves to
-# review_agent/skills/. The reviewer roots the backend at its OWN package dir to keep
-# its skills separate from the trader's.
-PACKAGE_ROOT = Path(__file__).parent
+# Reviewer skills live in review_agent/skills/, mounted read-only at /skills/. Everything
+# the reviewer *writes* (scratch + middleware-offloaded tool results) goes to an ephemeral
+# StateBackend held in graph state — never on disk, never in any source tree. This keeps
+# the auditor's filesystem isolated: its writes can't reach the trader's files, and its
+# skills stay separate because the route points at its own package skills dir. Constructed
+# inline (not a shared helper) so the reviewer and trader graphs never get coupled through
+# shared backend code or a shared store — even if the trader later adopts StateBackend too.
+SKILLS_DIR = Path(__file__).parent / "skills"
 
 REVIEW_SYSTEM_PROMPT = """\
 You are an INDEPENDENT REVIEWER agent. You AUDIT the Monet trading agent — judge whether it \
@@ -49,7 +53,10 @@ choose only the scope (detail/global/index), never a raw namespace.
 """
 
 model_name = os.environ.get("MODEL_NAME", "anthropic:claude-sonnet-4-5-20250929")
-backend = FilesystemBackend(root_dir=PACKAGE_ROOT, virtual_mode=True)
+backend = CompositeBackend(
+    default=StateBackend(),
+    routes={"/skills/": FilesystemBackend(root_dir=SKILLS_DIR, virtual_mode=True)},
+)
 
 review_graph = create_deep_agent(
     model=model_name,
