@@ -8,15 +8,6 @@ from deepagents.backends import CompositeBackend, FilesystemBackend, StateBacken
 from stock_agent.middleware import handle_tool_errors, retry_middleware
 from review_agent.tools import REVIEW_TOOLS
 
-# Reviewer skills live in review_agent/skills/, mounted read-only at /skills/. Everything
-# the reviewer *writes* (scratch + middleware-offloaded tool results) goes to an ephemeral
-# StateBackend held in graph state — never on disk, never in any source tree. This keeps
-# the auditor's filesystem isolated: its writes can't reach the trader's files, and its
-# skills stay separate because the route points at its own package skills dir. Constructed
-# inline (not a shared helper) so the reviewer and trader graphs never get coupled through
-# shared backend code or a shared store — even if the trader later adopts StateBackend too.
-SKILLS_DIR = Path(__file__).parent / "skills"
-
 REVIEW_SYSTEM_PROMPT = """\
 You are an INDEPENDENT REVIEWER agent. You AUDIT the Monet trading agent — judge whether it \
 thinks properly, follows its strategy, calls the right tools, completes its operations, and \
@@ -70,9 +61,21 @@ def _resolve_model_name() -> str:
 
 
 model_name = _resolve_model_name()
+
+# Reviewer skills live in review_agent/skills/, mounted read-only at SKILLS_MOUNT.
+# Everything the reviewer *writes* (scratch + middleware-offloaded tool results) goes to an
+# ephemeral StateBackend held in graph state — never on disk, never in any source tree.
+# This keeps the auditor's filesystem isolated: its writes can't reach the trader's files,
+# and its skills stay separate because the route points at its own package skills dir.
+# Constructed inline (not a shared helper) so the reviewer and trader graphs never get
+# coupled through shared backend code or a shared store — even if the trader later adopts
+# StateBackend too. SKILLS_MOUNT is the single source of truth for the virtual mount: it
+# must be BOTH the CompositeBackend route key and the create_deep_agent skills path.
+SKILLS_MOUNT = "/skills/"
+SKILLS_DIR = Path(__file__).parent / "skills"
 backend = CompositeBackend(
     default=StateBackend(),
-    routes={"/skills/": FilesystemBackend(root_dir=SKILLS_DIR, virtual_mode=True)},
+    routes={SKILLS_MOUNT: FilesystemBackend(root_dir=SKILLS_DIR, virtual_mode=True)},
 )
 
 review_graph = create_deep_agent(
@@ -80,6 +83,6 @@ review_graph = create_deep_agent(
     tools=REVIEW_TOOLS,
     system_prompt=REVIEW_SYSTEM_PROMPT,
     backend=backend,
-    skills=["/skills/"],
+    skills=[SKILLS_MOUNT],
     middleware=[handle_tool_errors, retry_middleware],
 )
