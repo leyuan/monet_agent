@@ -38,6 +38,9 @@ def read_run_trace(run_id: str | None = None, graph_name: str = "autonomous_loop
              "end_time": str(c.end_time) if c.end_time else None}
             for c in children if c.run_type == "tool"
         ]
+        # LangSmith returns children newest-first; sort chronologically so order-dependent
+        # checks (terminal step, dependency order, error recovery) see the real sequence.
+        tool_calls.sort(key=lambda c: c["start_time"] or "")
         _end = getattr(root, "end_time", None)
         runs_out.append({
             "run_id": str(root.id), "name": root.name, "start_time": str(root.start_time),
