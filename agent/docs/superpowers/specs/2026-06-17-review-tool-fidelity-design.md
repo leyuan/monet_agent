@@ -173,6 +173,16 @@ Reuses the existing platform. The **LLM authors only #1 (verdict) and #2/#3 (con
 `scope=` API)**; the watermark (#4) is **code-managed, exactly like `routing_log`/`_active`** — the
 model never hand-edits it.
 
+> **These JSON shapes are implementer reference and are enforced by the tool signatures + code
+> helpers (`write_review`, `stamp_insight`, the watermark helper) — they are NOT skill content.**
+> The `SKILL.md` must restate only the *behavioral* memory contract — call `begin_review` first;
+> after the verdict, `write_review(...)` with the deterministic facts in `evidence_refs`;
+> consolidate via `record_insight` / `write_reviewer_memory(scope=…)` **only for recurring/
+> significant** findings — and must **never inline these structures**. The agent hand-assembles only
+> the `evidence_refs` *contents* and the one-line `index` value; the provenance schema and the
+> watermark are built by code and the agent never sees them. Restating shapes in the skill would
+> create a second, drift-prone source of truth and undo the namespace-encapsulation hardening.
+
 1. **Per-run verdict → `agent_reviews` row.** Deterministic facts live in `evidence_refs`, so the
    verdict is pinned to ground truth:
    ```json
