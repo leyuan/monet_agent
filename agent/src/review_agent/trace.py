@@ -38,8 +38,11 @@ def read_run_trace(run_id: str | None = None, graph_name: str = "autonomous_loop
              "end_time": str(c.end_time) if c.end_time else None}
             for c in children if c.run_type == "tool"
         ]
+        _end = getattr(root, "end_time", None)
         runs_out.append({
             "run_id": str(root.id), "name": root.name, "start_time": str(root.start_time),
+            "end_time": str(_end) if _end else None,  # None => still running (don't audit)
+            "status": getattr(root, "status", None),
             "error": root.error, "total_tokens": getattr(root, "total_tokens", None),
             "tool_calls": tool_calls,
         })

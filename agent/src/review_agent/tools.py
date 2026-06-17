@@ -31,7 +31,7 @@ from review_agent.trace import read_run_trace
 from review_agent.review_memory import load_review_context
 from review_agent.insights import stamp_insight
 from review_agent.tool_fidelity import (
-    identify_phase, analyze_tool_fidelity, select_unreviewed, advance_cursor,
+    identify_phase, analyze_tool_fidelity, select_unreviewed, advance_cursor, is_finished,
 )
 from datetime import datetime as _dt
 
@@ -199,12 +199,16 @@ def get_tool_fidelity_runs(subject: str | None = None, config: RunnableConfig = 
         cursor = _read_watermark(rt)
         all_runs = read_run_trace(limit=10)["runs"]  # newest-first
         roots = select_unreviewed(all_runs, cursor, cold_start_n=_COLD_START_N)
-    out = []
+    out, skipped = [], []
     for run in roots:
+        if not is_finished(run):
+            # still running (end_time None) — its trace is partial; never audit it as 'done'.
+            skipped.append(run["run_id"])
+            continue
         phase = identify_phase(run, weekend=_is_weekend(run["start_time"]))
         out.append({"run_id": run["run_id"], "start_time": run["start_time"],
                     "facts": analyze_tool_fidelity(run, phase)})
-    return {"runs": out}
+    return {"runs": out, "skipped_in_progress": skipped}
 
 
 def mark_run_reviewed(run_id: str, start_time: str, config: RunnableConfig = None) -> dict:

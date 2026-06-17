@@ -70,6 +70,13 @@ def _parse_ms(start: str | None, end: str | None) -> int | None:
         return None
 
 
+def is_finished(run: dict) -> bool:
+    """A LangSmith run has terminated iff it has an `end_time` (whether it succeeded or
+    errored). A still-running run has end_time=None — auditing it yields a partial,
+    misleading trace, so callers must skip it."""
+    return run.get("end_time") is not None
+
+
 def analyze_tool_fidelity(run: dict, phase: str) -> dict:
     calls = run.get("tool_calls", [])
     names = [c.get("name") for c in calls]
@@ -116,7 +123,9 @@ def analyze_tool_fidelity(run: dict, phase: str) -> dict:
     durations = [d for d in (_parse_ms(c.get("start_time"), c.get("end_time")) for c in calls) if d]
     return {
         "phase": phase,
-        "run_completed": run.get("error") is None,
+        # completed = terminated cleanly. A pending run (end_time None, error None) is NOT
+        # completed; a finished-with-error run is NOT completed either.
+        "run_completed": run.get("end_time") is not None and run.get("error") is None,
         "total_calls": total,
         "failed_calls": failed,
         "success_rate": (total - failed) / total if total else 1.0,

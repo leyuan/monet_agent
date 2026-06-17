@@ -6,9 +6,11 @@ def _call(name, error=None, start=None, end=None, outputs=None):
             "start_time": start, "end_time": end}
 
 
-def _run(calls, run_error=None, total_tokens=None):
+def _run(calls, run_error=None, total_tokens=None, end_time="2026-06-17T14:05:00"):
+    # end_time defaults to a finished timestamp (a real audited run has terminated)
     return {"run_id": "r", "name": "autonomous_loop", "start_time": "2026-06-17T14:00:00",
-            "error": run_error, "total_tokens": total_tokens, "tool_calls": calls}
+            "end_time": end_time, "error": run_error, "total_tokens": total_tokens,
+            "tool_calls": calls}
 
 
 def test_clean_factor_loop_passes_all_invariants():
