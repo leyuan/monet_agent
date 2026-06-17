@@ -52,7 +52,24 @@ observations; discard one-off noise. Confidence hardens automatically with corro
 choose only the scope (detail/global/index), never a raw namespace.
 """
 
-model_name = os.environ.get("MODEL_NAME", "anthropic:claude-sonnet-4-5-20250929")
+def _resolve_model_name() -> str:
+    """The reviewer's model, decorrelated from the trader's by default.
+
+    Precedence: REVIEWER_MODEL_NAME → MODEL_NAME (shared with the trader) →
+    default. A different model family gives the reviewer independent blind
+    spots — it cannot launder the trader's plausible-but-wrong reasoning the
+    way a same-model judge can. Any init_chat_model "provider:model" string
+    works (anthropic / openai / google_genai providers are installed); set
+    that provider's API key in the env.
+    """
+    return (
+        os.environ.get("REVIEWER_MODEL_NAME")
+        or os.environ.get("MODEL_NAME")
+        or "anthropic:claude-sonnet-4-5-20250929"
+    )
+
+
+model_name = _resolve_model_name()
 backend = CompositeBackend(
     default=StateBackend(),
     routes={"/skills/": FilesystemBackend(root_dir=SKILLS_DIR, virtual_mode=True)},
