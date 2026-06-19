@@ -3,6 +3,8 @@ trace × DB classification. No I/O — every function takes plain dicts (the tra
 the DB rows the I/O layer fetched) so it unit-tests without LangSmith or Supabase.
 """
 
+import re
+
 # Operations the trader can perform, and how to verify each one's durable effect landed.
 #   kind="db"        : a row should appear/change in `table`; matched by `match`.
 #       match.src    : "output" (the tool's return payload) or "input" (its call args)
@@ -92,3 +94,29 @@ def extract_operations(run: dict) -> list[dict]:
             "error": c.get("error"),
         })
     return ops
+
+
+_SAFE_VALUE = re.compile(r"^[A-Za-z0-9 :._\-]+$")  # ids, keys, symbols, dates — no quotes
+
+
+def _match_value(op: dict, match: dict) -> str | None:
+    """Resolve the identifier for the probe from the op's output / input / a constant."""
+    if match["src"] == "const":
+        return match["field"]
+    # OPERATION_SPECS uses "input"/"output" as src, but op dict stores as "inputs"/"output"
+    src_key = "inputs" if match["src"] == "input" else match["src"]
+    payload = op.get(src_key) or {}
+    return payload.get(match["field"])
+
+
+def build_probe_sql(op: dict) -> str | None:
+    """A single read-only SELECT to confirm the operation's row landed, or None when there
+    is nothing safe to probe (trace-only/unclassified, missing identifier, unsafe value)."""
+    spec = OPERATION_SPECS.get(op["tool"])
+    if not spec or spec["kind"] != "db":
+        return None
+    match = spec["match"]
+    value = _match_value(op, match)
+    if not value or not _SAFE_VALUE.match(str(value)):
+        return None
+    return f"SELECT * FROM {spec['table']} WHERE {match['col']} = '{value}' LIMIT 5"
