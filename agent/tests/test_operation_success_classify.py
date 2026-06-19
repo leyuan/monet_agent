@@ -61,6 +61,13 @@ def test_probe_error_is_unverifiable_not_silent_failure():
     assert r["status"] == "unverifiable" and r["severity"] == "info"
 
 
+def test_manage_watchlist_remove_lands_via_trace_only():
+    op = {"tool": "manage_watchlist", "bucket": "trace_only",
+          "output": {"action": "removed", "symbol": "AAPL", "success": True}, "inputs": {}, "error": None}
+    r = classify_operation(op, [], RUN_START)
+    assert r["status"] == "landed" and r["severity"] == "pass"
+
+
 def test_run_severity_is_worst():
     assert run_severity([{"severity": "pass"}, {"severity": "warn"}, {"severity": "fail"}]) == "fail"
     assert run_severity([{"severity": "pass"}, {"severity": "info"}]) == "info"

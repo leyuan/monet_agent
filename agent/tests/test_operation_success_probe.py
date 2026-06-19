@@ -10,9 +10,12 @@ def test_probe_by_output_id():
     assert sql == "SELECT * FROM trades WHERE id = 'abc-123' LIMIT 5"
 
 
-def test_probe_by_input_symbol():
-    sql = build_probe_sql(_op("manage_watchlist", inputs={"symbol": "AAPL"}))
-    assert sql == "SELECT * FROM watchlist WHERE symbol = 'AAPL' LIMIT 5"
+def test_probe_none_for_traceonly_manage_watchlist():
+    assert build_probe_sql(_op("manage_watchlist", bucket="trace_only", inputs={"symbol": "AAPL"})) is None
+
+
+def test_probe_none_for_unknown_tool():
+    assert build_probe_sql(_op("get_quote", bucket="unclassified")) is None
 
 
 def test_probe_by_const_key():

@@ -4,6 +4,7 @@ the DB rows the I/O layer fetched) so it unit-tests without LangSmith or Supabas
 """
 
 import re
+from datetime import datetime
 
 # Operations the trader can perform, and how to verify each one's durable effect landed.
 #   kind="db"        : a row should appear/change in `table`; matched by `match`.
@@ -31,8 +32,7 @@ OPERATION_SPECS: dict[str, dict] = {
                         "match": {"src": "output", "field": "key", "col": "key"}},
     "update_stock_analysis": {"kind": "db", "verify": "fresh_memory", "table": "agent_memory",
                               "match": {"src": "output", "field": "key", "col": "key"}},
-    "manage_watchlist": {"kind": "db", "verify": "row_exists", "table": "watchlist",
-                         "match": {"src": "input", "field": "symbol", "col": "symbol"}},
+    "manage_watchlist": {"kind": "trace_only"},
     "record_daily_snapshot": {"kind": "db", "verify": "snapshot", "table": "equity_snapshots",
                               "match": {"src": "output", "field": "date", "col": "snapshot_date"},
                               "critical": True},
@@ -121,8 +121,6 @@ def build_probe_sql(op: dict) -> str | None:
         return None
     return f"SELECT * FROM {spec['table']} WHERE {match['col']} = '{value}' LIMIT 5"
 
-
-from datetime import datetime
 
 _SEVERITY_ORDER = {"pass": 0, "info": 1, "warn": 2, "fail": 3}
 

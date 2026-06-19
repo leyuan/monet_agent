@@ -10,7 +10,6 @@ REQUIRED = {
     "trades": {"id", "status", "filled_avg_price"},
     "agent_memory": {"key", "updated_at"},
     "agent_journal": {"id"},
-    "watchlist": {"symbol"},
     "equity_snapshots": {"snapshot_date", "spy_close", "portfolio_equity"},
 }
 
