@@ -23,4 +23,4 @@ def test_db_specs_have_required_shape():
         if spec["kind"] == "db":
             assert "verify" in spec and "table" in spec and "match" in spec, tool
             m = spec["match"]
-            assert m["src"] in ("output", "input") and m["col"] and m["field"], tool
+            assert m["src"] in ("output", "input", "const") and m["col"] and m["field"], tool

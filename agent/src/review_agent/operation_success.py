@@ -35,9 +35,9 @@ OPERATION_SPECS: dict[str, dict] = {
                               "match": {"src": "output", "field": "date", "col": "snapshot_date"},
                               "critical": True},
     "audit_factor_ic": {"kind": "db", "verify": "fresh_memory", "table": "agent_memory",
-                        "match": {"src": "output", "field": "key", "col": "key"}},
+                        "match": {"src": "const", "field": "strategy_health", "col": "key"}},
     "check_live_vs_backtest_divergence": {"kind": "db", "verify": "fresh_memory", "table": "agent_memory",
-                                          "match": {"src": "output", "field": "key", "col": "key"}},
+                                          "match": {"src": "const", "field": "strategy_divergence", "col": "key"}},
     # --- trace-only (external / conditional multi-write) ----------------------
     "attach_bracket_to_position": {"kind": "trace_only"},
     "reconcile_positions": {"kind": "trace_only"},
