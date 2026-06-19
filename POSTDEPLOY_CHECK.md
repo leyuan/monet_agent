@@ -109,6 +109,18 @@ Completed — first run showed baseline +24.0% alpha, short_mom_atr +29.3% alpha
 legacy fields in strategy memory (`validated` said "AI infrastructure focus", `pre_trade_checklist`
 said "Is tech outperforming?"). Full strategy memory replaced Mar 14.
 
+### review-operation-success skill (trace × DB join) — shipped 2026-06-19
+**Trigger:** first on-demand `operation_success` review run against a real `autonomous_loop` trace
+(needs a fired trader run with artifacts in Supabase).
+- [ ] `get_operation_success_runs` returns operations with statuses for a real run (happy path).
+- [ ] A `landed` order/snapshot/memory write is confirmed against the actual Supabase row.
+- [ ] A risk-rejected `place_order` is classified `rejected_expected` (pass), not a failure.
+- [ ] An engineered missing-row case yields `silent_failure` (critical → run_severity `fail`).
+- [ ] A trace-only op (email) with a clean output is `landed`; with an error flag is `errored_unrecovered`.
+- [ ] An unknown/unclassified tool surfaces as `unverifiable` (registry-gap callout), not a silent drop.
+- [ ] `mark_run_reviewed` advances the `operation_success` watermark independently of tool_fidelity's.
+- [ ] Coverage test `test_every_trader_tool_is_classified` is green in CI.
+
 ### Catalyst Discovery (next Saturday run — Mar 21)
 **Trigger**: First Saturday factor-loop weekend variant where agent actually calls `discover_catalysts()`.
 - [x] `upcoming_catalysts` memory key written with events array (manually seeded Mar 14)
