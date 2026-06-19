@@ -33,6 +33,9 @@ from review_agent.insights import stamp_insight
 from review_agent.tool_fidelity import (
     identify_phase, analyze_tool_fidelity, select_unreviewed, advance_cursor, is_finished,
 )
+from review_agent.operation_success import (
+    extract_operations, build_probe_sql, classify_operation, run_severity,
+)
 from datetime import datetime as _dt
 
 
@@ -222,6 +225,49 @@ def mark_run_reviewed(run_id: str, start_time: str, config: RunnableConfig = Non
     return {"status": "marked", "run_id": run_id}
 
 
+def get_operation_success_runs(subject: str | None = None, config: RunnableConfig = None) -> dict:
+    """Resolve the trader runs to audit and return their DETERMINISTIC operation-success facts.
+
+    For each finished run: enumerate operations from the trace, probe the trader's Supabase
+    tables read-only to confirm each durable effect landed, and classify the outcome. Sweep
+    mode (subject None) = runs newer than the operation_success watermark; explicit mode
+    (subject a run_id) = just that run. You INTERPRET the statuses, write a verdict per run
+    with write_review, then call mark_run_reviewed(run_id, start_time).
+
+    Returns: {"runs": [{"run_id","start_time","run_severity","operations":[...]}],
+              "skipped_in_progress": [...]}.
+    """
+    rt = _get_active(_thread_id(config))
+    if rt is None:
+        raise ValueError("No active review — call begin_review first.")
+    if subject:
+        roots = read_run_trace(run_id=subject)["runs"]
+    else:
+        cursor = _read_watermark(rt)
+        all_runs = read_run_trace(limit=10)["runs"]  # newest-first
+        roots = select_unreviewed(all_runs, cursor, cold_start_n=_COLD_START_N)
+
+    out, skipped = [], []
+    for run in roots:
+        if not is_finished(run):
+            skipped.append(run["run_id"])
+            continue
+        classified = []
+        for op in extract_operations(run):
+            sql = build_probe_sql(op)
+            rows, probe_error = [], False
+            if sql:
+                res = query_database(sql)
+                if res.get("error"):
+                    probe_error = True          # bad column / DB down → unverifiable, not silent_failure
+                else:
+                    rows = res.get("rows") or []
+            classified.append(classify_operation(op, rows, run["start_time"], probe_error=probe_error))
+        out.append({"run_id": run["run_id"], "start_time": run["start_time"],
+                    "run_severity": run_severity(classified), "operations": classified})
+    return {"runs": out, "skipped_in_progress": skipped}
+
+
 REVIEW_TOOLS = [
     # evidence (read-only)
     query_database,
@@ -239,4 +285,6 @@ REVIEW_TOOLS = [
     # tool-fidelity audit + watermark
     get_tool_fidelity_runs,
     mark_run_reviewed,
+    # operation-success audit (reuses mark_run_reviewed for the watermark)
+    get_operation_success_runs,
 ]

@@ -21,6 +21,7 @@ ALLOWED = {
     "record_insight",
     "get_tool_fidelity_runs",
     "mark_run_reviewed",
+    "get_operation_success_runs",
 }
 
 # SECONDARY guard = explicit denylist of the most dangerous trader-mutating /
