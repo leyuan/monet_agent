@@ -17,6 +17,7 @@
 - **Memory binding is by `begin_review("operation_success")`** — the watermark + detail namespaces are bound from the active review type; the LLM chooses only `scope=`, never a raw namespace.
 - **Run tests from `agent/`**: `cd agent && python -m pytest <path> -v`.
 - **v1 scoping (explicit deviations from spec, conservative):** match keys are **Tier-1 only** (exact key from the tool's output/input); when the key is absent the operation is `unverifiable`, never matched by a fuzzy timestamp window (spec §3c Tier-2 → roadmap). Memory-write freshness uses **`updated_at >= run_start`** (robust to same-run overwrites) rather than exact-timestamp equality.
+- **Column correctness is guaranteed, not assumed.** Probed column names trace to the DDL in `supabase/migrations/*.sql` (the source of truth). A guard test (Task 2) fails if any probed column is missing from the migrations; an opt-in integration test (Task 6, `RUN_DB_INTEGRATION=1`) runs every probe against local Supabase. **A probe that errors (bad column / DB down) is classified `unverifiable`, NEVER `silent_failure`** — a schema mistake can only ever say "couldn't check," never a false failure.
 
 ---
 
@@ -277,11 +278,65 @@ READ_ONLY_TOOLS: set[str] = {
 Run: `cd agent && python -m pytest tests/test_operation_success_registry.py -v`
 Expected: PASS. If `test_every_trader_tool_is_classified` fails listing unclassified tools, read each named tool's implementation and add it to `OPERATION_SPECS` (db if it writes a verifiable row, trace_only if external/conditional) or `READ_ONLY_TOOLS` (no meaningful operation), then re-run.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Write the migration-column guard test**
+
+This is a guard (it passes now — the columns are correct against the current migrations — and FAILS if a probed column ever drifts or is mistyped). The migrations live at repo-root `supabase/migrations/`, two levels above `tests/`.
+
+```python
+# tests/test_operation_success_schema.py
+"""Guard: every column the operation-success code probes must exist in the migration DDL
+(supabase/migrations/*.sql) — the source of truth the live DB is built from."""
+import pathlib
+import re
+
+MIGRATIONS = pathlib.Path(__file__).resolve().parents[2] / "supabase" / "migrations"
+
+# (table, columns) the code depends on: build_probe_sql match cols + the fields classify reads.
+REQUIRED = {
+    "trades": {"id", "status", "filled_avg_price"},
+    "agent_memory": {"key", "updated_at"},
+    "agent_journal": {"id"},
+    "watchlist": {"symbol"},
+    "equity_snapshots": {"snapshot_date", "spy_close", "portfolio_equity"},
+}
+
+_KEYWORDS = {"primary", "unique", "constraint", "check", "foreign"}
+
+
+def _schema() -> dict[str, set]:
+    text = "\n".join(p.read_text() for p in sorted(MIGRATIONS.glob("*.sql")))
+    cols: dict[str, set] = {}
+    for m in re.finditer(r"create table(?:\s+if not exists)?\s+(?:public\.)?(\w+)\s*\((.*?)\);",
+                         text, re.IGNORECASE | re.DOTALL):
+        table, body = m.group(1).lower(), m.group(2)
+        for line in body.splitlines():
+            mm = re.match(r"(\w+)\s+\w", line.strip().rstrip(","))
+            if mm and mm.group(1).lower() not in _KEYWORDS:
+                cols.setdefault(table, set()).add(mm.group(1).lower())
+    for m in re.finditer(
+            r"alter table\s+(?:if exists\s+)?(?:public\.)?(\w+)\s+add column(?:\s+if not exists)?\s+(\w+)",
+            text, re.IGNORECASE):
+        cols.setdefault(m.group(1).lower(), set()).add(m.group(2).lower())
+    return cols
+
+
+def test_probed_columns_exist_in_migrations():
+    schema = _schema()
+    for table, needed in REQUIRED.items():
+        present = schema.get(table, set())
+        assert needed <= present, f"{table}: probed columns missing from migrations: {needed - present}"
+```
+
+- [ ] **Step 6: Run the guard to verify it passes against the real migrations**
+
+Run: `cd agent && python -m pytest tests/test_operation_success_schema.py -v`
+Expected: PASS. If it fails, the migrations disagree with the code's assumed columns — fix `OPERATION_SPECS`/`classify_operation`/`REQUIRED` to match the DDL, not the other way around.
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add src/review_agent/operation_success.py tests/test_operation_success_registry.py
-git commit -m "feat(reviewer): operation-success registry + coverage guarantee"
+git add src/review_agent/operation_success.py tests/test_operation_success_registry.py tests/test_operation_success_schema.py
+git commit -m "feat(reviewer): operation-success registry + coverage + column guard"
 ```
 
 ---
@@ -479,7 +534,7 @@ git commit -m "feat(reviewer): build_probe_sql read-only landing probe"
 
 **Interfaces:**
 - Consumes: an op dict; `rows: list[dict]` (the probe result, `[]` if none/none-found); `run_start: str` (the run's `start_time`).
-- Produces: `classify_operation(op: dict, rows: list[dict], run_start: str) -> dict` → `{"tool", "status", "severity", "detail", "evidence"}`; `run_severity(classified: list[dict]) -> str`.
+- Produces: `classify_operation(op: dict, rows: list[dict], run_start: str, probe_error: bool = False) -> dict` → `{"tool", "status", "severity", "detail", "evidence"}`; `run_severity(classified: list[dict]) -> str`. When `probe_error` is True (the DB query itself failed), the result is `unverifiable` — a schema mistake or DB outage can NEVER masquerade as `silent_failure`.
 - Status vocabulary: `landed`, `rejected_expected`, `partial`, `degraded`, `silent_failure`, `rejected_unexpected`, `errored_unrecovered`, `unverifiable`. Severity: `pass`/`info`/`warn`/`fail`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -542,6 +597,13 @@ def test_unverifiable_when_no_probe_key():
     assert r["status"] == "unverifiable" and r["severity"] == "info"
 
 
+def test_probe_error_is_unverifiable_not_silent_failure():
+    """A failed DB probe (bad column / DB down) must NEVER read as silent_failure."""
+    op = _op("record_daily_snapshot", output={"date": "2026-06-19"})  # critical op
+    r = classify_operation(op, [], RUN_START, probe_error=True)
+    assert r["status"] == "unverifiable" and r["severity"] == "info"
+
+
 def test_run_severity_is_worst():
     assert run_severity([{"severity": "pass"}, {"severity": "warn"}, {"severity": "fail"}]) == "fail"
     assert run_severity([{"severity": "pass"}, {"severity": "info"}]) == "info"
@@ -573,11 +635,17 @@ def _parse_dt(s):
         return None
 
 
-def classify_operation(op: dict, rows: list[dict], run_start: str) -> dict:
+def classify_operation(op: dict, rows: list[dict], run_start: str, probe_error: bool = False) -> dict:
     """Decide the operation's status + severity from its trace output and the probe rows.
-    Pure: `rows` is whatever the DB probe returned ([] = none found / no probe)."""
+    Pure: `rows` is whatever the DB probe returned ([] = none found / no probe).
+    `probe_error` True = the DB query itself failed (bad column / outage)."""
     spec = OPERATION_SPECS.get(op["tool"], {"kind": "unclassified"})
     out = op.get("output") or {}
+
+    # A failed probe can only ever be "couldn't check" — never a false silent_failure.
+    if probe_error:
+        return _result(op, "unverifiable", "info",
+                       f"{op['tool']}: DB probe failed — cannot confirm landing.", {"output": out})
 
     # Unknown tool — surfaced, never silently dropped.
     if spec["kind"] == "unclassified":
@@ -745,6 +813,20 @@ def test_get_runs_skips_in_progress(monkeypatch):
     assert out["runs"] == [] and "rp" in out["skipped_in_progress"]
 
 
+def test_query_error_is_unverifiable_not_silent_failure(monkeypatch):
+    """If query_database returns an error (e.g. bad column), the op is unverifiable — the
+    run must NOT be reported as a silent failure off a broken probe."""
+    monkeypatch.setattr(T, "_get_active", lambda tid: "operation_success")
+    monkeypatch.setattr(T, "read_run_trace", lambda **k: _TRACE)
+    monkeypatch.setattr(T, "_read_watermark", lambda rt: None)
+    monkeypatch.setattr(T, "query_database", lambda sql: {"error": 'column "id" does not exist'})
+    out = T.get_operation_success_runs(config=FAKE_CONFIG)
+    statuses = {o["tool"]: o["status"] for o in out["runs"][0]["operations"]}
+    assert statuses["write_journal_entry"] == "unverifiable"
+    assert statuses["record_daily_snapshot"] == "unverifiable"
+    assert out["runs"][0]["run_severity"] in ("info", "pass")   # never fail off a broken probe
+
+
 def test_requires_active_review(monkeypatch):
     monkeypatch.setattr(T, "_get_active", lambda tid: None)
     import pytest
@@ -808,11 +890,14 @@ def get_operation_success_runs(subject: str | None = None, config: RunnableConfi
         classified = []
         for op in extract_operations(run):
             sql = build_probe_sql(op)
-            rows = []
+            rows, probe_error = [], False
             if sql:
                 res = query_database(sql)
-                rows = res.get("rows") or []
-            classified.append(classify_operation(op, rows, run["start_time"]))
+                if res.get("error"):
+                    probe_error = True          # bad column / DB down → unverifiable, not silent_failure
+                else:
+                    rows = res.get("rows") or []
+            classified.append(classify_operation(op, rows, run["start_time"], probe_error=probe_error))
         out.append({"run_id": run["run_id"], "start_time": run["start_time"],
                     "run_severity": run_severity(classified), "operations": classified})
     return {"runs": out, "skipped_in_progress": skipped}
@@ -832,7 +917,38 @@ In the `REVIEW_TOOLS` list, just below `get_tool_fidelity_runs,` / `mark_run_rev
 Run: `cd agent && python -m pytest tests/test_operation_success_tools.py tests/test_review_tools_boundary.py -v`
 Expected: PASS (4 new tests + the boundary test stays green).
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 7: Add the opt-in integration probe test (column drift vs a real DB)**
+
+Append to `tests/test_operation_success_tools.py`. Gated by `RUN_DB_INTEGRATION=1` (the existing convention) so normal CI skips it; run it against local Supabase to catch column drift directly.
+
+```python
+import os
+import pytest
+
+from review_agent.operation_success import OPERATION_SPECS, build_probe_sql
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(os.environ.get("RUN_DB_INTEGRATION") != "1", reason="needs local Supabase")
+def test_every_db_probe_runs_without_column_error():
+    """Each db-backed op's probe SQL executes against the real schema with no
+    'column does not exist' error (returns rows or an empty set, never a SQL error)."""
+    from stock_agent.tools.memory import query_database
+    samples = {"output": {"trade_id": "00000000-0000-0000-0000-000000000000",
+                          "journal_id": "00000000-0000-0000-0000-000000000000",
+                          "key": "market_regime", "date": "2026-01-01"},
+               "input": {"symbol": "AAPL"}}
+    for tool, spec in OPERATION_SPECS.items():
+        if spec["kind"] != "db":
+            continue
+        op = {"tool": tool, "bucket": "db", "error": None, **samples}
+        sql = build_probe_sql(op)
+        assert sql, f"{tool}: expected a probe SQL from sample identifiers"
+        res = query_database(sql)
+        assert "error" not in res, f"{tool} probe failed: {res.get('error')}"
+```
+
+- [ ] **Step 8: Commit**
 
 ```bash
 git add src/review_agent/tools.py tests/test_operation_success_tools.py
@@ -979,8 +1095,8 @@ git commit -m "docs(reviewer): post-deploy checks for review-operation-success"
 
 - [ ] **Run the full reviewer test suite:**
 
-Run: `cd agent && python -m pytest tests/test_run_cursor.py tests/test_operation_success_registry.py tests/test_operation_success_extract.py tests/test_operation_success_probe.py tests/test_operation_success_classify.py tests/test_operation_success_tools.py tests/test_tool_fidelity_watermark.py tests/test_tool_fidelity_completion.py tests/test_tool_fidelity_tools.py tests/test_review_tools_boundary.py -v`
-Expected: ALL PASS — new operation-success suite green, tool-fidelity + boundary tests unchanged.
+Run: `cd agent && python -m pytest tests/test_run_cursor.py tests/test_operation_success_registry.py tests/test_operation_success_schema.py tests/test_operation_success_extract.py tests/test_operation_success_probe.py tests/test_operation_success_classify.py tests/test_operation_success_tools.py tests/test_tool_fidelity_watermark.py tests/test_tool_fidelity_completion.py tests/test_tool_fidelity_tools.py tests/test_review_tools_boundary.py -v`
+Expected: ALL PASS — new operation-success suite green, tool-fidelity + boundary tests unchanged. (The opt-in integration probe is skipped unless `RUN_DB_INTEGRATION=1`.)
 
 ---
 
@@ -991,6 +1107,7 @@ Expected: ALL PASS — new operation-success suite green, tool-fidelity + bounda
 - §2 trace × Supabase evidence → `get_operation_success_runs` joins `read_run_trace` × `query_database` (Task 6); not-Alpaca/not-logs honored (no broker/log tools used).
 - §3b declarative registry → `OPERATION_SPECS` (Task 2).
 - §3c match keys → `build_probe_sql` Tier-1 (Task 4); **Tier-2 fuzzy fallback deferred to roadmap (v1 deviation, stated in Global Constraints)**; freshness via `updated_at >= run_start` (Task 5).
+- **Column correctness** → migration-column guard test (Task 2), probe-error→`unverifiable` fail-safe (Tasks 5/6), opt-in integration probe vs local Supabase (Task 6). Columns confirmed against `supabase/migrations/` DDL.
 - §3d success definition + status taxonomy → `classify_operation` covers landed/rejected_expected/partial/degraded/silent_failure(crit)/rejected_unexpected/errored_unrecovered/unverifiable; carve-outs (guardrail=success, unverifiable≠fail) tested (Task 5).
 - §3e content checks → snapshot `degraded` rule (Task 5).
 - §3f boundaries → reads dropped, in-progress skipped (`is_finished`), inverse-join absent, tool-errors not double-counted (only affect landing) — Tasks 3/5/6.
