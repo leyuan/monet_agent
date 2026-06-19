@@ -3,6 +3,11 @@ fact extraction from a run trace, and the watermark cursor. No I/O — all funct
 plain dicts and return plain dicts so they unit-test without LangSmith or Supabase.
 """
 
+# Generic run-selection + watermark helpers now live in run_cursor.py; re-exported here so
+# existing `from review_agent.tool_fidelity import is_finished, select_unreviewed, advance_cursor`
+# imports (tools.py + tool-fidelity tests) keep working unchanged.
+from review_agent.run_cursor import is_finished, select_unreviewed, advance_cursor  # noqa: F401
+
 # Per-phase process invariants for the trader (autonomous_loop).
 #   required  : tools that MUST appear at least once (unconditional steps only —
 #               conditional tools like place_order are covered by `order`, not `required`).
@@ -70,13 +75,6 @@ def _parse_ms(start: str | None, end: str | None) -> int | None:
         return None
 
 
-def is_finished(run: dict) -> bool:
-    """A LangSmith run has terminated iff it has an `end_time` (whether it succeeded or
-    errored). A still-running run has end_time=None — auditing it yields a partial,
-    misleading trace, so callers must skip it."""
-    return run.get("end_time") is not None
-
-
 def analyze_tool_fidelity(run: dict, phase: str) -> dict:
     calls = run.get("tool_calls", [])
     names = [c.get("name") for c in calls]
@@ -136,30 +134,3 @@ def analyze_tool_fidelity(run: dict, phase: str) -> dict:
         "runtime_ms": sum(durations) if durations else None,
         "token_usage": run.get("total_tokens"),
     }
-
-
-_GRAPH = "autonomous_loop"
-
-
-def select_unreviewed(roots: list[dict], cursor: dict | None, *, cold_start_n: int) -> list[dict]:
-    """roots newest-first. Returns runs to review, OLDEST-first (so the watermark advances
-    monotonically as each is processed)."""
-    if cursor is None:
-        chosen = roots[:cold_start_n]
-    else:
-        seen = set(cursor.get("reviewed_run_ids", []))
-        chosen = [r for r in roots if r["run_id"] not in seen]
-    return list(reversed(chosen))
-
-
-def advance_cursor(cursor: dict | None, run_id: str, start_time: str, *,
-                   baseline: dict | None = None, cap: int = 50) -> dict:
-    cursor = dict(cursor or {})
-    ids = [run_id, *cursor.get("reviewed_run_ids", [])][:cap]
-    out = {
-        "graph": _GRAPH,
-        "last_reviewed_start_time": start_time,
-        "reviewed_run_ids": ids,
-        "baseline": {**cursor.get("baseline", {}), **(baseline or {})},
-    }
-    return out
