@@ -62,3 +62,33 @@ READ_ONLY_TOOLS: set[str] = {
     "get_earnings_results", "assess_ai_bubble_risk", "assess_ai_cycle_durability",
     "suggest_factor_weight_adjustment",
 }
+
+
+def _unwrap_output(outputs) -> dict:
+    """LangSmith stores a tool's return under varying shapes. Normalize to the return dict:
+    a bare {"output": <dict>} wrapper is unwrapped; anything non-dict becomes {}."""
+    if isinstance(outputs, dict):
+        if set(outputs.keys()) == {"output"} and isinstance(outputs["output"], dict):
+            return outputs["output"]
+        return outputs
+    return {}
+
+
+def extract_operations(run: dict) -> list[dict]:
+    """Enumerate the run's operations from its trace. Reads are dropped; operations and
+    unknown (unclassified) tools are returned for verification/surfacing."""
+    ops = []
+    for c in run.get("tool_calls", []):
+        name = c.get("name")
+        if name in READ_ONLY_TOOLS:
+            continue
+        spec = OPERATION_SPECS.get(name)
+        bucket = spec["kind"] if spec else "unclassified"
+        ops.append({
+            "tool": name,
+            "bucket": bucket,
+            "inputs": c.get("inputs") or {},
+            "output": _unwrap_output(c.get("outputs")),
+            "error": c.get("error"),
+        })
+    return ops
