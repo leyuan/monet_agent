@@ -102,12 +102,65 @@ Plan: `docs/superpowers/plans/2026-06-19-review-operation-success.md`
 
 ---
 
-## 2. `review-tool-fidelity` (already rebuilt + validated locally, earlier)
+## 2. `review-tool-fidelity` (rebuilt 2026-06-17; validated locally, not yet on cloud)
 
-Audits whether a run followed its prescribed **tool choreography** (required tools present, forbidden
-absent, ordering, completion, error recovery, success rate) — trace-only, no DB. Already validated
-end-to-end locally (incl. a live run on a non-Anthropic model) and is merge-ready on this branch.
-Same setup applies; trigger with *"Run a tool_fidelity review …"*.
+**What it does in one line:** checks whether a run followed its prescribed **tool choreography** —
+required tools present, forbidden ones absent, dependency-ordering honoured, the run completed, errors
+recovered, and the tool-call success rate. **Trace-only — no DB** (this is the key contrast with
+operation-success: tool-fidelity asks "was the tool *called* right?", operation-success asks "did the
+effect *land*?").
+Spec/plan: `docs/superpowers/{specs,plans}/2026-06-17-review-tool-fidelity*`
+
+**Local status:** ✅ validated end-to-end on a real run on a non-Anthropic model (`openai:gpt-5.5`) →
+correct FAIL verdict, persisted to local Supabase. NOT yet run against real cloud data.
+
+### How to test it
+1. Pick a finished `autonomous_loop` run (a factor-loop is ideal — it has a clear required sequence:
+   `score_universe` → `generate_factor_rankings` → … ). A run with a skipped step or tool errors is
+   the most interesting to confirm it catches problems.
+2. Trigger: *"Run a tool_fidelity review of run `<run_id>`."* (or a sweep over recent runs).
+3. Inspect the new `agent_reviews` row + the reviewer's prose.
+
+### ✅ What good looks like
+- A row in `agent_reviews` with `review_type = 'tool_fidelity'`, subject `"<run_id> (<phase>)"`, and
+  `evidence_refs` holding the **deterministic facts** (`phase`, `run_completed`, `success_rate`,
+  `invariant_violations`, `per_tool_errors`, `recovery`, `runtime_ms`, `token_usage`).
+- **Phase identified correctly** (`factor_loop_weekday` / `factor_loop_weekend` / `reflection` /
+  `weekly_review`).
+- A clean run → `pass`. A run that skipped a required tool, called a forbidden one, broke dependency
+  order, crashed, or had persistent tool errors → `warn`/`fail` **citing the specific fact**.
+- `tool_fidelity:watermark` advanced; `mark_run_reviewed` called; a re-run audits only *new* runs.
+
+### 🚩 Red flags (these are exactly the bugs found + fixed in local testing — confirm they stay fixed on cloud)
+- **Auditing an in-progress run as "completed."** A still-running run (no `end_time`) must be
+  **skipped** (`is_finished`), not scored as a premature PASS. Confirm a mid-run trace is skipped.
+- **Order-dependent checks firing falsely** (e.g. a false `missing_terminal` or `order_violation`).
+  Real LangSmith traces arrive reverse-chronological; `read_run_trace` sorts by `start_time` to fix
+  this. Confirm ordering verdicts are sound on a real (reverse-ordered) trace.
+- **Tier B driving a fail.** Runtime / token-cost / redundant-call findings are descriptive only —
+  they must **never** be a standalone `fail`. Only Tier A (invariants / success-rate / recovery /
+  completion) drives severity.
+- **Auditing the wrong graph.** It must only read `autonomous_loop` runs — never its own
+  `review_agent` runs or the `monet_agent` chat graph. Confirm the trace filter holds on cloud.
+
+### ⚠️ Known gotchas / limits (by design)
+- **Trace-only + honest degradation:** with no trace for a run, it says "no trace — cannot audit"
+  (confidence 0) rather than guessing. It's effectively inert until real traces flow.
+- **`phase = unknown`** → invariant checks fall back to generic ones (honest, but note lower
+  confidence in the verdict).
+- **"tool-call failure" = the trace `error` flag is set.** A *business* rejection (e.g. a risk-check
+  reject of `place_order`) is **not** a tool failure here — that's operation-success's job. The two
+  skills are deliberately complementary; expect a run with a risk-rejected order to be `pass` here.
+- Per-phase invariants are a **small set** (required / forbidden / dependency-order), not a rigid
+  golden sequence — benign reordering of independent steps is tolerated.
+
+### Open follow-ups (track, not blockers)
+- Same reviewer-table migration prereq as everything else (see setup).
+- Tier-B rolling baseline wiring + trigger/cadence: deferred.
+- Cold-start sweep currently backfills the whole fetch window (≤10), not strictly "new since last."
+- **Trader-side (NOT the reviewer):** the run it audited thrashed `score_universe` ×9 against
+  yfinance rate limits before giving up — the *trader's* scoring should back off after the first
+  rate-limit error. Surfaced by the reviewer; fix lives in trading code.
 
 ---
 
