@@ -3584,6 +3584,9 @@ def _build_subscription_email(data: dict, recipient_email: str | None = None) ->
                         "spy_pct", "alpha_pct"} ],   # one per portfolio
             "cycle": {"phase_label", "score", "capex_direction",
                       "hyperscaler_yoy", "heat_level", "heat_score"} | None,
+            "cycle_signals": {"net_read", "signals": [
+                {"headline","source","url","date","category","direction","why"}
+            ]} | None,
             "trades": [ {"portfolio","side","symbol","qty","price"} ],
             "reflection": {"content": str} | None,
         }
@@ -3594,6 +3597,7 @@ def _build_subscription_email(data: dict, recipient_email: str | None = None) ->
     today_label = data.get("today_label", "")
     books = data.get("books", [])
     cycle = data.get("cycle")
+    cycle_signals = data.get("cycle_signals")
     trades = data.get("trades", [])
     reflection = data.get("reflection")
 
@@ -3661,6 +3665,80 @@ def _build_subscription_email(data: dict, recipient_email: str | None = None) ->
             f"Heat <b>{html.escape(heat)}</b> {hscore if hscore is not None else '—'}/100</p></div>"
         )
 
+    # ── Key news (AI cycle signals) ───────────────────────────────────────────
+    # category → (label, text color, pill background) — mirrors the dashboard
+    # CycleSignalsCard so the email reads as the same product.
+    _SIGNAL_STYLE = {
+        "supply_tight":     ("Supply Tight",     "#15803d", "#dcfce7"),
+        "capacity_adds":    ("Capacity Adds",    "#15803d", "#dcfce7"),
+        "guidance_shift":   ("Guidance",         "#1d4ed8", "#dbeafe"),
+        "financing_strain": ("Financing Strain", "#b45309", "#fef3c7"),
+        "demand_stress":    ("Demand Stress",    "#b91c1c", "#fee2e2"),
+    }
+    news_html = ""
+    signals = (cycle_signals or {}).get("signals") or []
+    if signals:
+        as_of_label = ""
+        _as_of = (cycle_signals or {}).get("as_of")
+        if _as_of:
+            try:
+                as_of_label = datetime.fromisoformat(
+                    str(_as_of).replace("Z", "+00:00")
+                ).strftime("%b %-d")
+            except Exception:
+                as_of_label = ""
+        net_read = (cycle_signals or {}).get("net_read") or ""
+        net_read_html = (
+            f"<p style='margin:0 0 14px 0; font-size:13px; line-height:1.6; color:#4b5563;'>"
+            f"{html.escape(net_read)}</p>"
+            if net_read else ""
+        )
+        items = ""
+        for s in signals[:4]:
+            label, fg, bg = _SIGNAL_STYLE.get(
+                s.get("category") or "",
+                (str(s.get("category") or "Signal").replace("_", " ").title(), "#374151", "#f3f4f6"),
+            )
+            pill = (
+                f"<span style='display:inline-block; padding:2px 8px; border-radius:9999px; "
+                f"background:{bg}; color:{fg}; font-size:10px; font-weight:700; "
+                f"text-transform:uppercase; letter-spacing:0.04em; white-space:nowrap;'>"
+                f"{html.escape(label)}</span>"
+            )
+            headline = html.escape(s.get("headline") or "")
+            url = s.get("url")
+            if url:
+                headline = (
+                    f"<a href='{html.escape(url)}' style='color:#111827; text-decoration:none;'>"
+                    f"{headline} <span style='color:#9ca3af;'>&#8599;</span></a>"
+                )
+            why_text = html.escape(s.get("why") or "")
+            source = s.get("source")
+            if source:
+                why_text += f" <span style='color:#9ca3af;'>&mdash; {html.escape(source)}</span>"
+            why_html = (
+                f"<p style='margin:4px 0 0 0; font-size:12px; line-height:1.5; color:#6b7280;'>{why_text}</p>"
+                if why_text else ""
+            )
+            items += (
+                "<div style='margin-bottom:14px;'>"
+                f"<div style='font-size:14px; line-height:1.5; color:#111827;'>"
+                f"{pill}&nbsp; <span style='font-weight:600;'>{headline}</span></div>"
+                f"{why_html}</div>"
+            )
+        as_of_html = (
+            f"<span style='float:right; font-size:11px; font-weight:400; text-transform:none; "
+            f"letter-spacing:0; color:#9ca3af;'>Monet&rsquo;s read &middot; {html.escape(as_of_label)}</span>"
+            if as_of_label else ""
+        )
+        news_html = (
+            "<div style='margin-top:18px; padding-top:16px; border-top:1px solid #e5e7eb;'>"
+            "<p style='margin:0 0 10px 0; font-size:11px; font-weight:600; text-transform:uppercase; "
+            "letter-spacing:0.06em; color:#6b7280;'>"
+            f"Key news &middot; AI super-cycle{as_of_html}</p>"
+            f"{net_read_html}{items}</div>"
+        )
+
     # ── Today's trades ────────────────────────────────────────────────────────
     def _trade_line(t: dict) -> str:
         qty = t.get("qty")
@@ -3674,7 +3752,7 @@ def _build_subscription_email(data: dict, recipient_email: str | None = None) ->
     if trade_lines:
         items = "".join(f"<li style='margin-bottom:4px;'>{html.escape(t)}</li>" for t in trade_lines)
         trades_html = (
-            "<div style='margin-top:18px;'>"
+            "<div style='margin-top:18px; padding-top:16px; border-top:1px solid #e5e7eb;'>"
             "<p style='margin:0 0 8px 0; font-size:11px; font-weight:600; text-transform:uppercase; letter-spacing:0.06em; color:#6b7280;'>Today&rsquo;s trades</p>"
             f"<ul style='padding-left:20px; margin:0; color:#374151; font-size:14px;'>{items}</ul></div>"
         )
@@ -3711,6 +3789,7 @@ def _build_subscription_email(data: dict, recipient_email: str | None = None) ->
         f"<h1 style='margin:0 0 16px 0; font-size:24px; line-height:1.15; color:#111827;'>{html.escape(today_label)}</h1>"
         f"{portfolios_html}"
         f"{cycle_html}"
+        f"{news_html}"
         f"{trades_html}"
         f"{takeaway_html}"
         f"{unsubscribe_html}"
@@ -3732,6 +3811,20 @@ def _build_subscription_email(data: dict, recipient_email: str | None = None) ->
             f"Capex {(cycle.get('capex_direction') or '—').title()} {f'{yoy:+.0f}%' if yoy is not None else 'n/a'} · "
             f"Heat {(cycle.get('heat_level') or '—').title()} {cycle.get('heat_score','—')}/100"
         )]
+    if signals:
+        text_parts += ["", "Key news — AI super-cycle:"]
+        net_read = (cycle_signals or {}).get("net_read") or ""
+        if net_read:
+            text_parts.append(f"  {net_read}")
+        for s in signals[:4]:
+            label = _SIGNAL_STYLE.get(
+                s.get("category") or "",
+                ((s.get("category") or "Signal").replace("_", " ").title(),),
+            )[0]
+            line = f"  - [{label}] {s.get('headline','')}"
+            if s.get("source"):
+                line += f" ({s.get('source')})"
+            text_parts.append(line)
     if trade_lines:
         text_parts += ["", "Today's trades:", *[f"  - {t}" for t in trade_lines]]
     if reflection_lines:
@@ -3863,15 +3956,35 @@ def send_daily_subscription_emails() -> dict:
                 "heat_score": bub.get("score"),
             }
 
+        # ── Key news (curated AI cycle signals, same source as dashboard) ──────
+        sig = _read_mem("ai_cycle_signals")
+        cycle_signals = sig if (sig and sig.get("signals")) else None
+
         email_data = {
             "today_label": today_label,
             "books": books,
             "cycle": cycle,
+            "cycle_signals": cycle_signals,
             "trades": trades,
             "reflection": reflection,
         }
 
+        # ── Subject: lead with the day's top curated news headline ─────────────
+        # News-led subject earns the open; fall back to the dated digest title
+        # when no signals were captured that day.
+        try:
+            _short_date = today.strftime("%b %-d")
+        except Exception:
+            _short_date = today_label
         subject = f"Monet Daily Digest - {today_label}"
+        _top_signals = (cycle_signals or {}).get("signals") or []
+        if _top_signals:
+            _hl = (_top_signals[0].get("headline") or "").strip()
+            if _hl:
+                if len(_hl) > 64:
+                    _hl = _hl[:63].rsplit(" ", 1)[0].rstrip(",.;:—- ") + "…"
+                subject = f"Monet · {_hl} · {_short_date}"
+
         sent_ids: list[str] = []
 
         with httpx.Client(timeout=20.0) as client:
