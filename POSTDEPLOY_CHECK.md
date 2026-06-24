@@ -6,6 +6,20 @@ Ongoing checklist of features/behaviors to verify after deployment. When reviewi
 
 ## Pending Verification
 
+### Daily Digest — Key News section (Jun 23)
+**Trigger**: Next daily subscription email send (`send_daily_subscription_emails()`), after an AI cycle refresh has populated `ai_cycle_signals`.
+- [ ] Email renders a "Key News · AI super-cycle" section between the AI Super-Cycle band and Today's Trades
+- [ ] Net-read sentence appears above the signal list when `ai_cycle_signals.net_read` is set
+- [ ] Subject line leads with the day's top curated headline (`Monet · <headline> · <Mon D>`); long headlines truncate at a word boundary with `…`; **fallback**: no signals → `Monet Daily Digest - <full date>`
+- [ ] Freshness gate: signals with a `date` older than 7 days are excluded from both the subject and the Key News list (undated/unparseable items are kept); **failure mode**: all signals stale → section omitted + subject falls back to dated title
+- [ ] AI cycle refresh now stamps signals with the article's real publication date (not today) and drops items >7 days old / standing capex levels already shown on the AI Capex Trend card — confirm next refresh's `ai_cycle_signals.date` values are real pub dates
+- [ ] Each signal shows a color-coded category pill (Supply Tight/Capacity Adds green, Guidance blue, Financing Strain amber, Demand Stress red) matching the dashboard CycleSignalsCard
+- [ ] Headlines with a `url` are clickable; the ↗ arrow renders; headlines without a url render as plain text (no broken link)
+- [ ] Only the top 4 signals are shown even when memory holds more
+- [ ] Plain-text body includes the "Key news — AI super-cycle" block (open the text/plain part in a client that prefers it)
+- [ ] **Failure mode**: `ai_cycle_signals` missing/empty or `signals: []` → section is omitted entirely, email still sends with the other sections intact (no empty header, no exception)
+- [ ] HTML escaping holds for headlines/sources containing `&`, `<`, quotes (no broken markup)
+
 ### Two-Portfolio System — Increment 2: portfolio schema foundation (Jun 11)
 **Trigger**: After applying migration `20260611000000_two_portfolio.sql` to Supabase.
 - [ ] Migration applies cleanly; `trades.portfolio` and `equity_snapshots.portfolio` columns exist

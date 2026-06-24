@@ -11,6 +11,19 @@ interface ReleaseEntry {
 
 const RELEASES: ReleaseEntry[] = [
   {
+    version: "v1.8",
+    date: "Jun 23",
+    title: "Daily Digest: Key News + cleaner layout",
+    items: [
+      "News-led subject line: the email subject now leads with the day's top curated headline (e.g. 'Monet · Memory shortage runs to 2030 · Jun 22') instead of a static title, falling back to the dated digest title when no signals were captured",
+      "Freshness gate: only news from the last 7 days can lead the subject or the Key News list, so a stale or mis-dated standing fact can't hijack the email; the cycle refresh now dates signals to the article's real publication date and drops anything older than a week",
+      "Daily digest email now includes a Key News section — the same curated AI super-cycle signals as the dashboard (Supply Tight, Capacity Adds, Guidance, Demand Stress, Financing Strain), each with a color-coded tag, a linked headline, and a one-line 'why it matters'",
+      "Leads with Monet's net read of the cycle so the digest explains the regime, not just the score",
+      "Top 4 signals surfaced to keep the email scannable; the full feed stays on the /ai-cycle page",
+      "Cleaner section dividers between Performance → AI Super-Cycle → Key News → Trades → Takeaway",
+    ],
+  },
+  {
     version: "v1.7",
     date: "Jun 12",
     title: "Two Portfolios: Quant Core + Conviction",
