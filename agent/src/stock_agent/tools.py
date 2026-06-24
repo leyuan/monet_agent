@@ -3957,8 +3957,25 @@ def send_daily_subscription_emails() -> dict:
             }
 
         # ── Key news (curated AI cycle signals, same source as dashboard) ──────
+        # Guardrail: only let recent (≤7d) news lead the subject / Key News list,
+        # so a stale or mis-dated standing fact can't hijack the email. Items with
+        # no parseable date are kept (can't prove stale; Finnhub items are dated).
+        def _signal_fresh(s: dict, max_age_days: int = 7) -> bool:
+            d = s.get("date")
+            if not d:
+                return True
+            try:
+                dt = datetime.fromisoformat(str(d).replace("Z", "+00:00"))
+            except Exception:
+                return True
+            return (today.date() - dt.date()).days <= max_age_days
+
         sig = _read_mem("ai_cycle_signals")
-        cycle_signals = sig if (sig and sig.get("signals")) else None
+        cycle_signals = None
+        if sig and sig.get("signals"):
+            _fresh = [s for s in sig["signals"] if _signal_fresh(s)]
+            if _fresh:
+                cycle_signals = {**sig, "signals": _fresh}
 
         email_data = {
             "today_label": today_label,

@@ -103,8 +103,22 @@ def main() -> None:
                  "capex_direction": cap.get("guidance_direction"), "hyperscaler_yoy": cap.get("hyperscaler_total_yoy"),
                  "heat_level": bub.get("level"), "heat_score": bub.get("score")}
 
+    def signal_fresh(s: dict, max_age_days: int = 7) -> bool:
+        d = s.get("date")
+        if not d:
+            return True
+        try:
+            dt = datetime.fromisoformat(str(d).replace("Z", "+00:00"))
+        except Exception:
+            return True
+        return (today.date() - dt.date()).days <= max_age_days
+
     sig = read_mem(sb, "ai_cycle_signals")
-    cycle_signals = sig if (sig and sig.get("signals")) else None
+    cycle_signals = None
+    if sig and sig.get("signals"):
+        fresh = [s for s in sig["signals"] if signal_fresh(s)]
+        if fresh:
+            cycle_signals = {**sig, "signals": fresh}
 
     email_data = {"today_label": today_label, "books": books, "cycle": cycle,
                   "cycle_signals": cycle_signals, "trades": trades, "reflection": reflection}

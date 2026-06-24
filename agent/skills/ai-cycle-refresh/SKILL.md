@@ -80,7 +80,9 @@ Curate the **top 4-7** most cycle-relevant items. For each, classify:
 - `category`: `demand_stress` | `financing_strain` | `supply_tight` | `capacity_adds` | `guidance_shift`
 - `direction`: `supportive` | `cautionary` | `neutral`
 - `why`: ONE line on what it means for the cycle (your read, not just a summary)
-- plus `headline`, `source`, `url` (real link), `date`
+- plus `headline`, `source`, `url` (real link), `date` — the **article's publication
+  date** (from the source/Finnhub item), NOT today's date. If you can't establish a
+  real pub date, drop the item rather than stamp it with today.
 
 Then persist (REPLACE the list each run — keep it current, ~7 max):
 ```
@@ -95,6 +97,16 @@ Discipline: **signal, not noise.** Cap at ~7, each must carry a real source link
 the `why` must tie to the cycle — not generic AI news. A cluster of `demand_stress` +
 `financing_strain` is an early warning the cycle is maturing; reflect that in `net_read`
 and your Step 7 journal note.
+
+**Freshness — this is a feed of what's MOVING, not standing facts:**
+- **Drop anything whose article is older than 7 days.** A 2-month-old capex article
+  re-surfaced today is not a signal — it misrepresents freshness (and now seeds the
+  daily email subject line). If nothing fresh exists for an angle, leave it out.
+- **Don't restate standing capex *levels* as signals.** The current hyperscaler capex
+  total / YoY (e.g. "$725B, +77%") already lives in `ai_capex_tracker` and shows on the
+  AI Capex Trend card and the email's AI Super-Cycle band. Only surface a `guidance_shift`
+  / `capacity_adds` signal when there's a genuine *change* (a new raise, a cut, a new
+  fab/contract) — dated to when it was actually reported.
 
 ## Step 6 — Record the daily history point
 
