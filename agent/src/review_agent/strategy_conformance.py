@@ -45,8 +45,8 @@ def resolve_spec(run_date: str) -> dict:
     effective_from <= run_date; falls back to the oldest version for earlier dates."""
     for v in STRATEGY_SPEC_VERSIONS:                 # newest-first
         if v["effective_from"] <= run_date:
-            return v
-    return STRATEGY_SPEC_VERSIONS[-1]
+            return {**v}
+    return {**STRATEGY_SPEC_VERSIONS[-1]}
 
 
 def run_severity(facts: list[dict]) -> str:

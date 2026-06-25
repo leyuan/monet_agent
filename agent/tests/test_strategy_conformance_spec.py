@@ -30,3 +30,10 @@ def test_run_severity_is_worst_and_unverifiable_never_raises():
     ]
     assert run_severity(facts) == "warn"
     assert run_severity([{"rule": "x", "status": "unverifiable", "severity": "info"}]) == "info"
+
+
+def test_resolve_spec_returns_independent_copy():
+    a = resolve_spec("2026-06-19")
+    a["max_positions"] = 999                     # mutate the returned dict
+    b = resolve_spec("2026-06-19")
+    assert b["max_positions"] == 8               # module spec is unaffected
