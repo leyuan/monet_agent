@@ -122,7 +122,7 @@ def _matching_open_buy(history: list[dict], sell: dict) -> dict | None:
         and _dtp(t.get("created_at")) is not None
         and (sell_ts is None or _dtp(t.get("created_at")) < sell_ts)
     ]
-    return max(candidates, key=lambda t: str(t.get("created_at"))) if candidates else None
+    return max(candidates, key=lambda t: _dtp(t.get("created_at"))) if candidates else None
 
 
 def _check_anti_churn(context: dict) -> dict:
@@ -133,6 +133,8 @@ def _check_anti_churn(context: dict) -> dict:
         if str(sell.get("side")).lower() != "sell":
             continue
         if str(sell.get("order_class")) == "bracket_fill":       # stop/TP exit is exempt
+            continue
+        if _dtp(sell.get("created_at")) is None:
             continue
         buy = _matching_open_buy(history, sell)
         if buy is None:

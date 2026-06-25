@@ -60,3 +60,28 @@ def test_stops_present_passes_when_all_buys_have_stops():
     buy = _t("AAPL", "buy", 10, "2026-06-15T14:00:00+00:00", stop=170.0)
     f = _check_stops_present(_ctx([buy]))
     assert f["status"] == "conformant"
+
+
+def test_anti_churn_skips_sell_with_no_prior_buy():
+    sell = _t("NVDA", "sell", 5, "2026-06-17T14:00:00+00:00")
+    f = _check_anti_churn(_ctx([sell]))
+    assert f["status"] == "conformant"
+
+
+def test_anti_churn_skips_sell_with_unparseable_timestamp():
+    buy = _t("AAPL", "buy", 10, "2026-06-15T14:00:00+00:00")
+    sell = _t("AAPL", "sell", 10, "not-a-date")
+    f = _check_anti_churn(_ctx([buy, sell]))
+    assert f["status"] == "conformant"     # bad timestamp → skip, not a false violation
+
+
+def test_stops_present_ignores_sells():
+    sell = _t("AAPL", "sell", 10, "2026-06-15T14:00:00+00:00", stop=None)
+    f = _check_stops_present(_ctx([sell]))
+    assert f["status"] == "conformant"     # sells are not subject to the stop rule
+
+
+def test_stops_present_flags_zero_stop():
+    buy = _t("AAPL", "buy", 10, "2026-06-15T14:00:00+00:00", stop=0)
+    f = _check_stops_present(_ctx([buy]))
+    assert f["status"] == "violated" and f["severity"] == "fail"
