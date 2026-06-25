@@ -37,3 +37,29 @@ def test_reconstruct_is_point_in_time():
     assert set(reconstruct_open_positions(trades, "2026-06-12T00:00:00+00:00")) == {"AAPL"}
     # as_of after the sell → flat
     assert reconstruct_open_positions(trades, "2026-06-16T00:00:00+00:00") == {}
+
+
+def test_reconstruct_unparseable_as_of_returns_empty():
+    trades = [_t("AAPL", "buy", 10, "2026-06-10T14:00:00+00:00", stop=180.0)]
+    assert reconstruct_open_positions(trades, "not-a-date") == {}
+
+
+def test_reconstruct_partial_sell_leaves_residual():
+    trades = [
+        _t("AAPL", "buy", 10, "2026-06-10T14:00:00+00:00", stop=180.0),
+        _t("AAPL", "sell", 4, "2026-06-15T14:00:00+00:00"),
+    ]
+    held = reconstruct_open_positions(trades, "2026-06-20T00:00:00+00:00")
+    assert held["AAPL"]["qty"] == 6
+    assert held["AAPL"]["opened_at"] == "2026-06-10T14:00:00+00:00"   # preserved on partial close
+
+
+def test_reconstruct_reopen_gets_fresh_opened_at():
+    trades = [
+        _t("AAPL", "buy", 10, "2026-06-10T14:00:00+00:00", stop=180.0),
+        _t("AAPL", "sell", 10, "2026-06-12T14:00:00+00:00"),            # full close
+        _t("AAPL", "buy", 5, "2026-06-15T14:00:00+00:00", stop=200.0),  # reopen
+    ]
+    held = reconstruct_open_positions(trades, "2026-06-20T00:00:00+00:00")
+    assert held["AAPL"]["opened_at"] == "2026-06-15T14:00:00+00:00"     # fresh, not the original
+    assert held["AAPL"]["stop_loss_price"] == 200.0

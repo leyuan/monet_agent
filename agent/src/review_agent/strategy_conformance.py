@@ -89,6 +89,8 @@ def trading_days_between(start_iso: str, end_iso: str) -> int:
 def reconstruct_open_positions(trades: list[dict], as_of_iso: str) -> dict[str, dict]:
     """Replay filled buys/sells with created_at <= as_of into net open lots per symbol."""
     as_of = _dtp(as_of_iso)
+    if as_of is None:
+        return {}
     net: dict[str, dict] = {}
     for t in sorted(trades, key=lambda r: str(r.get("created_at"))):
         ts = _dtp(t.get("created_at"))
