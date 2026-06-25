@@ -56,3 +56,55 @@ def run_severity(facts: list[dict]) -> str:
         if _SEVERITY_ORDER[f["severity"]] > _SEVERITY_ORDER[worst]:
             worst = f["severity"]
     return worst
+
+
+def _dtp(s):
+    try:
+        return datetime.fromisoformat(str(s))
+    except (TypeError, ValueError):
+        return None
+
+
+def _f(x) -> float:
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def trading_days_between(start_iso: str, end_iso: str) -> int:
+    """Weekday count strictly after start through end (holidays ignored — see plan)."""
+    s, e = _dtp(start_iso), _dtp(end_iso)
+    if s is None or e is None or e < s:
+        return 0
+    days, cur = 0, s.date()
+    end = e.date()
+    while cur < end:
+        cur += timedelta(days=1)
+        if cur.weekday() < 5:
+            days += 1
+    return days
+
+
+def reconstruct_open_positions(trades: list[dict], as_of_iso: str) -> dict[str, dict]:
+    """Replay filled buys/sells with created_at <= as_of into net open lots per symbol."""
+    as_of = _dtp(as_of_iso)
+    net: dict[str, dict] = {}
+    for t in sorted(trades, key=lambda r: str(r.get("created_at"))):
+        ts = _dtp(t.get("created_at"))
+        if as_of is not None and (ts is None or ts > as_of):
+            continue
+        sym = t.get("symbol")
+        side = str(t.get("side")).lower()
+        qty = _f(t.get("filled_quantity")) or _f(t.get("quantity"))
+        cur = net.setdefault(sym, {"qty": 0.0, "opened_at": None, "stop_loss_price": None})
+        if side == "buy":
+            if cur["qty"] <= 1e-9:                      # opening a fresh position
+                cur["opened_at"] = t.get("created_at")
+                cur["stop_loss_price"] = t.get("stop_loss_price")
+            cur["qty"] += qty
+        elif side == "sell":
+            cur["qty"] -= qty
+            if cur["qty"] <= 1e-9:
+                cur.update(qty=0.0, opened_at=None, stop_loss_price=None)
+    return {s: v for s, v in net.items() if v["qty"] > 1e-9}
