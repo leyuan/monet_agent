@@ -188,3 +188,60 @@ def _check_stops_present(context: dict) -> dict:
         return _fact("stops_present", "violated", "fail",
                      f"{len(missing)} buy(s) opened without a stop-loss.", {"missing": missing})
     return _fact("stops_present", "conformant", "pass", "All buys carry a stop.", {})
+
+
+def _check_factor_weights_conformance(context: dict) -> dict:
+    active = context.get("factor_weights")
+    rankings = context.get("factor_rankings")
+    if not active or not rankings or not rankings.get("factor_weights"):
+        return _fact("factor_weights_conformance", "unverifiable", "info",
+                     "No recorded scoring weights or active weights to compare.", {})
+    if context.get("factor_weights_stale"):
+        return _fact("factor_weights_conformance", "unverifiable", "info",
+                     "Active factor_weights changed after the run; cannot compare point-in-time.", {})
+    used = rankings["factor_weights"]
+    diffs = {k: round(_f(used.get(k)) - _f(active.get(k)), 4)
+             for k in set(active) | set(used)
+             if abs(_f(used.get(k)) - _f(active.get(k))) > 1e-3}
+    if diffs:
+        return _fact("factor_weights_conformance", "violated", "warn",
+                     "Run scored with weights differing from the active strategy.", {"diffs": diffs})
+    return _fact("factor_weights_conformance", "conformant", "pass",
+                 "Scored with active weights.", {})
+
+
+def _check_regime_gate(context: dict) -> dict:
+    regime = context.get("market_regime")
+    if not regime or not context.get("market_regime_in_window"):
+        return _fact("regime_gate", "unverifiable", "info",
+                     "No market_regime recorded within the run window.", {})
+    vix, breadth = _f(regime.get("vix")), _f(regime.get("breadth_pct"))
+    if not (vix > 26 and breadth < 30):
+        return _fact("regime_gate", "conformant", "pass",
+                     f"Regime not in hard-block (VIX {vix}, breadth {breadth}%).", {})
+    buys = [t for t in context["trades_window"] if str(t.get("side")).lower() == "buy"]
+    if buys:
+        return _fact("regime_gate", "violated", "fail",
+                     f"{len(buys)} buy(s) during a hard-block regime (VIX {vix}, breadth {breadth}%).",
+                     {"buys": [b.get("symbol") for b in buys], "vix": vix, "breadth_pct": breadth})
+    return _fact("regime_gate", "conformant", "pass",
+                 f"Hard-block regime respected — no buys (VIX {vix}, breadth {breadth}%).", {})
+
+
+_EVALUATORS = {
+    "anti_churn": _check_anti_churn,
+    "position_count": _check_position_count,
+    "stops_present": _check_stops_present,
+    "factor_weights_conformance": _check_factor_weights_conformance,
+    "regime_gate": _check_regime_gate,
+}
+assert set(_EVALUATORS) == VERIFIED_RULES, "evaluator table must cover exactly VERIFIED_RULES"
+
+
+def classify_conformance(context: dict) -> list[dict]:
+    """One deterministic fact per KNOWN_STRATEGY_RULES — verified via evaluators,
+    unverifiable rules emitted with their fixed reason. Coverage cannot silently regress."""
+    facts = [_EVALUATORS[r](context) for r in sorted(VERIFIED_RULES)]
+    for r in sorted(UNVERIFIABLE_RULES):
+        facts.append(_fact(r, "unverifiable", "info", _UNVERIFIABLE_REASON[r], {}))
+    return facts
