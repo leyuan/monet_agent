@@ -11,6 +11,16 @@ interface ReleaseEntry {
 
 const RELEASES: ReleaseEntry[] = [
   {
+    version: "v1.9",
+    date: "Jun 24",
+    title: "AI Super-Cycle data-quality fixes",
+    items: [
+      "AI Sector Heat valuation input is now more robust: it only trusts a forward P/E inside a sane 20x–120x band and blends NVDA + AMD, so an unreliable single print (yfinance was reporting NVDA at ~16x) can't zero out the valuation signal — the card now shows the bellwether actually used",
+      "Memory capex now hides names with incomplete/immaterial data (e.g. post-spinoff SanDisk reporting ~$45M/quarter for a NAND business) — they no longer show bogus '$0.0B' rows and no longer pollute the memory YoY aggregate",
+      "Verified the three AI cycle scores (Durability, Capex Trend, Sector Heat) all reconcile exactly to their formulas — the issues were bad inputs, not the math",
+    ],
+  },
+  {
     version: "v1.8",
     date: "Jun 23",
     title: "Daily Digest: Key News + cleaner layout",

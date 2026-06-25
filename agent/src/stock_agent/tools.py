@@ -2164,8 +2164,10 @@ def assess_ai_bubble_risk() -> dict:
     2. AI basket breadth (0-30 pts): % of basket stocks within 10% of 52-week high.
        - ≤50% near highs = 0 pts; 50%→100% linearly = 0→30 pts
 
-    3. Valuation stretch (0-30 pts): NVDA NTM P/E vs pre-AI-boom baseline of 35x.
-       - ≤35x = 0 pts; 35x→70x linearly = 0→30 pts; falls back to AMD if unavailable
+    3. Valuation stretch (0-30 pts): bellwether NTM P/E vs pre-AI-boom baseline of 35x.
+       - ≤35x = 0 pts; 35x→70x linearly = 0→30 pts
+       - Uses NVDA + AMD forward P/E, but only values in a sane [20x, 120x] band
+         (yfinance forwardPE is unreliable for these names); blends both when valid.
 
     Returns:
         Dict with score (0-100), level, smh_rsi, smh_vs_200ma_pct,
@@ -2235,17 +2237,27 @@ def assess_ai_bubble_risk() -> dict:
     except Exception:
         pass
 
-    # --- Component 3: Valuation stretch — NVDA NTM P/E vs 35x baseline (0-30 pts) ---
+    # --- Component 3: Valuation stretch — bellwether NTM P/E vs 35x baseline (0-30 pts) ---
+    # yfinance's forwardPE is noisy for these names — NVDA in particular prints
+    # implausibly low values (e.g. ~15x while trailing is ~30x). Only trust a P/E
+    # inside a sane band, and blend NVDA + AMD when both qualify so a single bad
+    # print can't zero out (or spike) the valuation signal.
+    _PE_MIN, _PE_MAX = 20.0, 120.0
     nvda_forward_pe: float | None = None
+    valuation_pe_source: list[str] = []
     try:
+        pe_inputs: list[float] = []
         for bellwether in ["NVDA", "AMD"]:
-            info = yf.Ticker(bellwether).info
-            pe = info.get("forwardPE")
-            if pe and pe > 0:
-                nvda_forward_pe = round(float(pe), 1)
-                break
+            try:
+                pe = yf.Ticker(bellwether).info.get("forwardPE")
+            except Exception:
+                pe = None
+            if pe and _PE_MIN <= float(pe) <= _PE_MAX:
+                pe_inputs.append(round(float(pe), 1))
+                valuation_pe_source.append(bellwether)
 
-        if nvda_forward_pe is not None:
+        if pe_inputs:
+            nvda_forward_pe = round(sum(pe_inputs) / len(pe_inputs), 1)
             # Linear: 35x→70x = 0→30 pts; below 35x = 0
             val_pts = min(30, max(0, round((nvda_forward_pe - 35) / 35 * 30)))
             score += val_pts
@@ -2274,6 +2286,7 @@ def assess_ai_bubble_risk() -> dict:
         "smh_vs_200ma_pct": smh_vs_200ma_pct,
         "basket_breadth_pct": basket_breadth_pct,
         "nvda_forward_pe": nvda_forward_pe,
+        "valuation_pe_source": valuation_pe_source,
         "action": action,
         "as_of": datetime.now().isoformat(),
     }
@@ -2538,11 +2551,16 @@ def _capex_qoq(series: list[tuple[str, float]]) -> float | None:
     return round((series[0][1] / series[1][1] - 1) * 100, 1)
 
 
-def _basket_capex_yoy(symbols: list[str]) -> tuple[float | None, dict]:
+def _basket_capex_yoy(symbols: list[str], min_capex: float = 0.5e9) -> tuple[float | None, dict]:
     """Aggregate capex YoY across a basket + per-name detail.
 
     Aggregate = (sum latest-quarter capex) / (sum year-ago-quarter capex) - 1,
-    over names that have >=5 quarters of data.
+    over names that have >=5 quarters of data AND latest capex >= ``min_capex``.
+
+    The materiality floor guards against incomplete yfinance cash-flow stubs —
+    e.g. post-spinoff SanDisk (SNDK) reports ~$40M/quarter for a NAND business,
+    which is clearly partial data. Such names are flagged ``immaterial`` (no YoY
+    shown) and excluded from the aggregate so they don't pollute the signal.
     """
     per_name: dict[str, dict] = {}
     sum_latest = 0.0
@@ -2552,9 +2570,20 @@ def _basket_capex_yoy(symbols: list[str]) -> tuple[float | None, dict]:
         if not series:
             per_name[sym] = {"latest": None, "yoy_pct": None, "qoq_pct": None, "period": None}
             continue
+        latest = series[0][1]
+        if latest < min_capex:
+            # Below the materiality floor — treat as an unreliable/immaterial stub.
+            per_name[sym] = {
+                "latest": round(latest, 0),
+                "yoy_pct": None,
+                "qoq_pct": None,
+                "period": series[0][0],
+                "immaterial": True,
+            }
+            continue
         yoy = _capex_yoy(series)
         per_name[sym] = {
-            "latest": round(series[0][1], 0),
+            "latest": round(latest, 0),
             "yoy_pct": yoy,
             "qoq_pct": _capex_qoq(series),
             "period": series[0][0],

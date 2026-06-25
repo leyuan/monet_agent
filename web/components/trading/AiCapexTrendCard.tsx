@@ -11,6 +11,7 @@ interface CapexName {
   yoy_pct: number | null;
   qoq_pct: number | null;
   period: string | null;
+  immaterial?: boolean;
 }
 
 interface AiCapexData {
@@ -149,12 +150,15 @@ export function AiCapexTrendCard() {
           ))}
         </div>
 
-        {/* Memory (supply) */}
+        {/* Memory (supply) — hide names with immaterial/incomplete capex data */}
         <div className="space-y-1">
           <p className="text-[11px] uppercase tracking-wide text-muted-foreground/70 font-medium">
             Supply — Memory {data.memory_yoy !== null && <span className="normal-case">({fmtYoY(data.memory_yoy)} YoY)</span>}
           </p>
-          {MEMORY.map((s) => (
+          {MEMORY.filter((s) => {
+            const d = data.per_name?.[s];
+            return d && !d.immaterial && d.latest != null;
+          }).map((s) => (
             <NameRow key={s} sym={s} d={data.per_name?.[s]} />
           ))}
         </div>

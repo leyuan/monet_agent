@@ -6,6 +6,15 @@ Ongoing checklist of features/behaviors to verify after deployment. When reviewi
 
 ## Pending Verification
 
+### AI Super-Cycle — data-quality fixes (Jun 24)
+**Trigger**: Next AI cycle refresh (`assess_ai_bubble_risk` + `compute_ai_capex_trend`) re-populates `ai_bubble_risk` / `ai_capex_tracker`. Dashboard `/ai-cycle` reflects after that run.
+- [ ] AI Sector Heat: `nvda_forward_pe` is a value in [20, 120]; `valuation_pe_source` lists the bellwether(s) used (today: `["AMD"]` since NVDA printed ~15.6x); card label matches the source (e.g. "AMD fwd P/E")
+- [ ] If BOTH NVDA and AMD are in-band, `nvda_forward_pe` is their average and `valuation_pe_source` = `["NVDA","AMD"]`
+- [ ] **Failure mode**: neither bellwether in-band → `nvda_forward_pe` null, valuation contributes 0 pts, card omits the P/E row (no crash)
+- [ ] AI Capex Trend: SNDK/WDC no longer render in the Memory section (flagged `immaterial`, latest < $0.5B); memory YoY is now MU-driven (~+58%)
+- [ ] Hyperscaler rows (MSFT/GOOGL/AMZN/META) all still render — none wrongly flagged immaterial (all >> $0.5B floor)
+- [ ] Memory YoY aggregate excludes the immaterial names (sanity: roughly equals MU's own YoY)
+
 ### Daily Digest — Key News section (Jun 23)
 **Trigger**: Next daily subscription email send (`send_daily_subscription_emails()`), after an AI cycle refresh has populated `ai_cycle_signals`.
 - [ ] Email renders a "Key News · AI super-cycle" section between the AI Super-Cycle band and Today's Trades

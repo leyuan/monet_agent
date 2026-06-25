@@ -13,6 +13,7 @@ interface AiBubbleRiskData {
   smh_vs_200ma_pct: number;
   basket_breadth_pct: number;
   nvda_forward_pe: number | null;
+  valuation_pe_source?: string[];
   action: string;
   as_of: string;
 }
@@ -127,7 +128,9 @@ export function AiBubbleRiskCard() {
           </div>
           {data.nvda_forward_pe != null && (
             <div className="flex justify-between">
-              <span className="text-muted-foreground">NVDA fwd P/E</span>
+              <span className="text-muted-foreground">
+                {(data.valuation_pe_source?.length ? data.valuation_pe_source.join("/") : "NVDA")} fwd P/E
+              </span>
               <span className={cn("font-medium tabular-nums", data.nvda_forward_pe >= 50 ? "text-orange-500" : "")}>
                 {data.nvda_forward_pe.toFixed(0)}x
               </span>
