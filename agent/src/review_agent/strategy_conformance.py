@@ -110,3 +110,79 @@ def reconstruct_open_positions(trades: list[dict], as_of_iso: str) -> dict[str, 
             if cur["qty"] <= 1e-9:
                 cur.update(qty=0.0, opened_at=None, stop_loss_price=None)
     return {s: v for s, v in net.items() if v["qty"] > 1e-9}
+
+
+def _matching_open_buy(history: list[dict], sell: dict) -> dict | None:
+    """Most recent filled BUY of the same symbol strictly before the sell."""
+    sell_ts = _dtp(sell.get("created_at"))
+    candidates = [
+        t for t in history
+        if t.get("symbol") == sell.get("symbol")
+        and str(t.get("side")).lower() == "buy"
+        and _dtp(t.get("created_at")) is not None
+        and (sell_ts is None or _dtp(t.get("created_at")) < sell_ts)
+    ]
+    return max(candidates, key=lambda t: str(t.get("created_at"))) if candidates else None
+
+
+def _check_anti_churn(context: dict) -> dict:
+    min_hold = context["spec"]["min_hold_trading_days"]
+    history = context["trades_history"]
+    violations = []
+    for sell in context["trades_window"]:
+        if str(sell.get("side")).lower() != "sell":
+            continue
+        if str(sell.get("order_class")) == "bracket_fill":       # stop/TP exit is exempt
+            continue
+        buy = _matching_open_buy(history, sell)
+        if buy is None:
+            continue                                             # cannot match → not a violation
+        held = trading_days_between(buy["created_at"], sell["created_at"])
+        if held < min_hold:
+            violations.append({"symbol": sell.get("symbol"), "held_trading_days": held,
+                               "min": min_hold, "bought_at": buy["created_at"],
+                               "sold_at": sell["created_at"]})
+    if violations:
+        return _fact("anti_churn", "violated", "fail",
+                     f"{len(violations)} discretionary sell(s) inside the {min_hold}-day min hold.",
+                     {"violations": violations})
+    return _fact("anti_churn", "conformant", "pass", "No early discretionary exits.", {})
+
+
+def _check_position_count(context: dict) -> dict:
+    cap = context["spec"]["max_positions"]
+    floor = context["spec"]["min_positions_soft"]
+    history = context["trades_history"]
+    overages = []
+    for t in context["trades_window"]:
+        if str(t.get("side")).lower() != "buy":
+            continue
+        n = len(reconstruct_open_positions(history, t["created_at"]))
+        if n > cap:
+            overages.append({"at": t["created_at"], "open_positions": n,
+                             "cap": cap, "after_buy": t.get("symbol")})
+    end_of_run = len(reconstruct_open_positions(history, context["run_end"]))
+    if overages:
+        return _fact("position_count", "violated", "warn",
+                     f"Held more than {cap} positions at {len(overages)} point(s).",
+                     {"overages": overages, "end_of_run": end_of_run})
+    if end_of_run < floor:
+        return _fact("position_count", "violated", "warn",
+                     f"Under-invested: {end_of_run} positions at run end (soft floor {floor}).",
+                     {"end_of_run": end_of_run, "floor": floor})
+    return _fact("position_count", "conformant", "pass",
+                 f"{end_of_run} positions at run end, within [{floor},{cap}].",
+                 {"end_of_run": end_of_run})
+
+
+def _check_stops_present(context: dict) -> dict:
+    missing = []
+    for t in context["trades_window"]:
+        if str(t.get("side")).lower() != "buy":
+            continue
+        if t.get("stop_loss_price") in (None, "", 0):
+            missing.append({"symbol": t.get("symbol"), "at": t.get("created_at")})
+    if missing:
+        return _fact("stops_present", "violated", "fail",
+                     f"{len(missing)} buy(s) opened without a stop-loss.", {"missing": missing})
+    return _fact("stops_present", "conformant", "pass", "All buys carry a stop.", {})
