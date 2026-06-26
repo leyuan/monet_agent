@@ -53,10 +53,17 @@ def test_regime_gate_unverifiable_when_no_regime_in_window():
     assert f["status"] == "unverifiable"
 
 
+def test_regime_gate_conformant_when_regime_present_not_hard_block():
+    f = _check_regime_gate(_base_ctx(
+        market_regime={"vix": 20, "breadth_pct": 60}, market_regime_in_window=True))
+    assert f["status"] == "conformant" and f["severity"] == "pass"
+
+
 def test_classify_emits_exactly_the_known_rule_set():
     facts = classify_conformance(_base_ctx())
     emitted = {f["rule"] for f in facts}
     assert emitted == KNOWN_STRATEGY_RULES               # runtime coverage guarantee
+    assert len(facts) == len(KNOWN_STRATEGY_RULES)       # exactly one fact per rule
     # every unverifiable rule reports unverifiable
     by = {f["rule"]: f for f in facts}
     for r in UNVERIFIABLE_RULES:
