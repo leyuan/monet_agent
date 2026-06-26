@@ -62,3 +62,36 @@ def test_requires_active_review(monkeypatch):
     import pytest
     with pytest.raises(ValueError):
         T.get_strategy_conformance_runs(config=FAKE_CONFIG)
+
+
+def test_counts_positions_opened_before_30d_window(monkeypatch):
+    # 8 positions opened ~40 days before the run (still held) + 1 new in-run buy => 9 > cap(8).
+    # Proves position_count reconstructs from FULL history, not a 30-day window.
+    old = [
+        {"symbol": f"S{i}", "side": "buy", "order_class": "simple", "quantity": 1,
+         "filled_quantity": 1, "filled_avg_price": 10.0, "stop_loss_price": 9.0,
+         "status": "filled", "created_at": "2026-05-10T14:00:00+00:00", "thesis": "old"}
+        for i in range(8)
+    ]
+    new_buy = {"symbol": "S8", "side": "buy", "order_class": "simple", "quantity": 1,
+               "filled_quantity": 1, "filled_avg_price": 10.0, "stop_loss_price": 9.0,
+               "status": "filled", "created_at": "2026-06-19T14:01:00+00:00", "thesis": "new"}
+    _setup(monkeypatch, trades=old + [new_buy])
+    out = T.get_strategy_conformance_runs(config=FAKE_CONFIG)
+    by = {r["rule"]: r for r in out["runs"][0]["rules"]}
+    assert by["position_count"]["status"] == "violated"          # 9 > cap 8, counting pre-window holds
+    assert by["position_count"]["evidence"]["overages"]
+
+
+def test_explicit_mode_audits_single_run(monkeypatch):
+    captured = {}
+    def fake_trace(**k):
+        captured.update(k)
+        return _TRACE
+    monkeypatch.setattr(T, "_get_active", lambda tid: "conformance")
+    monkeypatch.setattr(T, "read_run_trace", fake_trace)
+    monkeypatch.setattr(T, "query_database", lambda sql: {"rows": []})
+    monkeypatch.setattr(T, "read_agent_memory", lambda key: {"key": key, "value": None})
+    out = T.get_strategy_conformance_runs(subject="r1", config=FAKE_CONFIG)
+    assert captured.get("run_id") == "r1"                        # explicit mode → trace by run_id
+    assert out["runs"][0]["run_id"] == "r1"

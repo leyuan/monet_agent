@@ -39,7 +39,7 @@ from review_agent.operation_success import (
 from review_agent.strategy_conformance import (
     resolve_spec, classify_conformance, run_severity as conformance_run_severity,
 )
-from datetime import datetime as _dt, timedelta as _td
+from datetime import datetime as _dt
 
 
 def _thread_id(config: RunnableConfig | None) -> str:
@@ -271,11 +271,11 @@ def get_operation_success_runs(subject: str | None = None, config: RunnableConfi
     return {"runs": out, "skipped_in_progress": skipped}
 
 
-def _conformance_trades_sql(window_start: str, run_end: str) -> str:
+def _conformance_trades_sql(run_end: str) -> str:
     return (
         "SELECT symbol, side, order_class, quantity, filled_quantity, filled_avg_price, "
         "stop_loss_price, status, created_at, thesis FROM trades "
-        f"WHERE created_at >= '{window_start}' AND created_at <= '{run_end}' "
+        f"WHERE created_at <= '{run_end}' "
         "AND status ILIKE '%filled%' ORDER BY created_at ASC"
     )
 
@@ -294,7 +294,7 @@ def _within(ts: str | None, start: str, end: str) -> bool:
 def get_strategy_conformance_runs(subject: str | None = None, config: RunnableConfig = None) -> dict:
     """Resolve trader runs to audit and return their DETERMINISTIC conformance facts.
 
-    For each finished run: pull the trade ledger (run window + 30-day trailing) and three
+    For each finished run: pull the full trade ledger up to run end and three
     memory snapshots read-only, resolve the declared strategy in force at run time, and
     classify each rule. Sweep mode (subject None) = runs newer than the conformance
     watermark; explicit mode (subject a run_id) = just that run. You INTERPRET the statuses,
@@ -323,11 +323,7 @@ def get_strategy_conformance_runs(subject: str | None = None, config: RunnableCo
             continue
         run_start = run["start_time"]
         run_end = run.get("end_time") or run_start
-        try:
-            window_start = (_dt.fromisoformat(run_start) - _td(days=30)).isoformat()
-        except (TypeError, ValueError):
-            window_start = run_start
-        res = query_database(_conformance_trades_sql(window_start, run_end))
+        res = query_database(_conformance_trades_sql(run_end))
         history = [] if res.get("error") else (res.get("rows") or [])
         window = [t for t in history if _ts_ge(t.get("created_at"), run_start)]
         context = {
