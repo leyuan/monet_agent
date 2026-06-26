@@ -4,9 +4,10 @@ description: >
   Audit whether an autonomous run obeyed the DECLARED strategy (point-in-time): anti-churn
   min-hold, position-count band, factor-weight conformance, stops-present, regime hard-block.
   Deterministic facts come from get_strategy_conformance_runs; you judge severity and write the
-  verdict. Use for rule compliance / discipline / "did it follow strategy". NOT for reasoning
-  quality (review-decision-quality), efficacy (review-strategy-efficacy), tool correctness
-  (review-tool-fidelity), or persistence (review-operation-success).
+  verdict. Use when reviewing a run/period for rule compliance, discipline, or "did it follow
+  strategy". Do NOT use for reasoning quality (review-decision-quality), efficacy
+  (review-strategy-efficacy), tool correctness (review-tool-fidelity), or persistence
+  (review-operation-success).
 memory_namespace: conformance
 memory_access: { read: own, write: own }
 tags: [rules, process, discipline]
