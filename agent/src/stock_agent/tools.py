@@ -3918,7 +3918,17 @@ def send_daily_subscription_emails() -> dict:
                 logger.warning("Failed to load %s portfolio for daily email.", slug)
                 return {"name": name, "equity": None, "daily_pnl": None, "return_pct": None, "spy_pct": None, "alpha_pct": None, "adjustment": 0}
             mine = [a for a in _perf_adjustments if (a.get("portfolio") or "quant") == slug]
-            adj_total = sum(float(a.get("amount") or 0) for a in mine)
+            # Only count corrections still ACTIVE today: a correction whose
+            # end_date has passed (the artifact resolved — e.g. the position was
+            # restored) is dropped so current equity isn't double-counted.
+            def _active(a: dict) -> bool:
+                d, ed = a.get("date"), a.get("end_date")
+                if d and d > today_start:
+                    return False
+                if ed and today_start > ed:
+                    return False
+                return True
+            adj_total = sum(float(a.get("amount") or 0) for a in mine if _active(a))
             adj_today = sum(float(a.get("amount") or 0) for a in mine if a.get("date") == today_start)
             eq = p.get("equity")
             eq_adj = (eq + adj_total) if eq else eq
