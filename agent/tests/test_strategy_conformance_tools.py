@@ -95,3 +95,18 @@ def test_explicit_mode_audits_single_run(monkeypatch):
     out = T.get_strategy_conformance_runs(subject="r1", config=FAKE_CONFIG)
     assert captured.get("run_id") == "r1"                        # explicit mode → trace by run_id
     assert out["runs"][0]["run_id"] == "r1"
+
+
+def test_factor_weights_violation_when_rankings_in_window_and_differ(monkeypatch):
+    mem = {
+        "factor_weights": {"key": "factor_weights",
+                           "value": {"momentum": 0.45, "quality": 0.30, "value": 0.15, "eps_revision": 0.10},
+                           "updated_at": "2026-06-10T00:00:00+00:00"},   # before run → not stale
+        "factor_rankings": {"key": "factor_rankings",
+                            "value": {"factor_weights": {"momentum": 0.35, "quality": 0.30, "value": 0.20, "eps_revision": 0.15}},
+                            "updated_at": "2026-06-19T14:01:00+00:00"},   # within run window
+    }
+    _setup(monkeypatch, trades=[], memory=mem)
+    out = T.get_strategy_conformance_runs(config=FAKE_CONFIG)
+    by = {r["rule"]: r for r in out["runs"][0]["rules"]}
+    assert by["factor_weights_conformance"]["status"] == "violated"

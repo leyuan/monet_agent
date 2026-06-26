@@ -171,6 +171,10 @@ def _check_position_count(context: dict) -> dict:
         return _fact("position_count", "violated", "warn",
                      f"Held more than {cap} positions at {len(overages)} point(s).",
                      {"overages": overages, "end_of_run": end_of_run})
+    if end_of_run > cap:
+        return _fact("position_count", "violated", "warn",
+                     f"Holding {end_of_run} positions at run end, over the cap of {cap}.",
+                     {"end_of_run": end_of_run, "cap": cap})
     if end_of_run < floor:
         return _fact("position_count", "violated", "warn",
                      f"Under-invested: {end_of_run} positions at run end (soft floor {floor}).",
@@ -202,6 +206,9 @@ def _check_factor_weights_conformance(context: dict) -> dict:
     if context.get("factor_weights_stale"):
         return _fact("factor_weights_conformance", "unverifiable", "info",
                      "Active factor_weights changed after the run; cannot compare point-in-time.", {})
+    if not context.get("factor_rankings_in_window"):
+        return _fact("factor_weights_conformance", "unverifiable", "info",
+                     "Recorded scoring snapshot is not from this run's window; cannot compare point-in-time.", {})
     used = rankings["factor_weights"]
     diffs = {k: round(_f(used.get(k)) - _f(active.get(k)), 4)
              for k in set(active) | set(used)
@@ -219,6 +226,7 @@ def _check_regime_gate(context: dict) -> dict:
         return _fact("regime_gate", "unverifiable", "info",
                      "No market_regime recorded within the run window.", {})
     vix, breadth = _f(regime.get("vix")), _f(regime.get("breadth_pct"))
+    # Hard-block thresholds mirror the trader's risk.py:_check_regime_gate (VIX>26 AND breadth<30).
     if not (vix > 26 and breadth < 30):
         return _fact("regime_gate", "conformant", "pass",
                      f"Regime not in hard-block (VIX {vix}, breadth {breadth}%).", {})

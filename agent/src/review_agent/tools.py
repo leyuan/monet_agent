@@ -333,6 +333,7 @@ def get_strategy_conformance_runs(subject: str | None = None, config: RunnableCo
             "factor_weights": (fw or {}).get("value"),
             "factor_weights_stale": _ts_ge(fw.get("updated_at"), run_end) and (fw.get("updated_at") != run_end) if fw else False,
             "factor_rankings": (fr or {}).get("value"),
+            "factor_rankings_in_window": _within(fr.get("updated_at"), run_start, run_end) if fr else False,
             "market_regime": (mr or {}).get("value"),
             "market_regime_in_window": _within(mr.get("updated_at"), run_start, run_end) if mr else False,
         }

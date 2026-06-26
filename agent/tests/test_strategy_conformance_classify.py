@@ -10,7 +10,8 @@ def _base_ctx(**over):
     ctx = {"spec": SPEC, "trades_window": [], "trades_history": [],
            "run_end": "2026-06-30T00:00:00+00:00",
            "factor_weights": None, "factor_weights_stale": False,
-           "factor_rankings": None, "market_regime": None, "market_regime_in_window": False}
+           "factor_rankings": None, "factor_rankings_in_window": True,
+           "market_regime": None, "market_regime_in_window": False}
     ctx.update(over)
     return ctx
 
@@ -57,6 +58,14 @@ def test_regime_gate_conformant_when_regime_present_not_hard_block():
     f = _check_regime_gate(_base_ctx(
         market_regime={"vix": 20, "breadth_pct": 60}, market_regime_in_window=True))
     assert f["status"] == "conformant" and f["severity"] == "pass"
+
+
+def test_factor_weights_unverifiable_when_rankings_not_in_window():
+    w = {"momentum": 0.35}
+    f = _check_factor_weights_conformance(_base_ctx(
+        factor_weights=w, factor_rankings={"factor_weights": {"momentum": 0.40}},
+        factor_rankings_in_window=False))
+    assert f["status"] == "unverifiable" and f["severity"] == "info"
 
 
 def test_classify_emits_exactly_the_known_rule_set():
