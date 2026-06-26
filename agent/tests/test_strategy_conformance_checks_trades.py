@@ -85,3 +85,12 @@ def test_stops_present_flags_zero_stop():
     buy = _t("AAPL", "buy", 10, "2026-06-15T14:00:00+00:00", stop=0)
     f = _check_stops_present(_ctx([buy]))
     assert f["status"] == "violated" and f["severity"] == "fail"
+
+
+def test_position_count_warns_when_inherited_portfolio_over_cap():
+    # 9 positions all opened before this run's window, none sold, no in-run buys.
+    # end_of_run = 9 > cap 8, but the overage was inherited (not from an in-window buy).
+    hist = [_t(f"S{i}", "buy", 1, f"2026-05-1{i}T14:00:00+00:00") for i in range(9)]
+    f = _check_position_count(_ctx([], history=hist))   # empty trades_window (no in-run buys)
+    assert f["status"] == "violated" and f["severity"] == "warn"
+    assert f["evidence"]["end_of_run"] == 9
