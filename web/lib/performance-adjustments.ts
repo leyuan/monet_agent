@@ -9,12 +9,29 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export interface PerfAdjustment {
   amount: number;        // dollars to add back
   portfolio: string;     // "quant" | "conviction"
-  date?: string;         // YYYY-MM-DD the artifact occurred
+  date?: string;         // YYYY-MM-DD the artifact occurred (correction start)
+  end_date?: string;     // YYYY-MM-DD the artifact RESOLVED; correction inactive after this
   symbol?: string;
   reason?: string;
 }
 
 const STARTING_EQUITY = 100_000;
+
+/** Today as YYYY-MM-DD (UTC) — the as-of date for live/current figures. */
+function todayUtc(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Is a correction still ACTIVE as of `asOf`? Inactive once its `end_date` has
+ * passed — e.g. a missing position was restored in the account, so live equity
+ * already reflects the recovery and adding the correction would double-count.
+ */
+function activeAt(a: PerfAdjustment, asOf: string): boolean {
+  if (a.date && a.date > asOf) return false;          // hasn't occurred yet
+  if (a.end_date && asOf > a.end_date) return false;  // already resolved
+  return true;
+}
 
 /** Fetch the adjustments list (portfolio defaults to "quant" when untagged). */
 export async function fetchPerfAdjustments(supabase: SupabaseClient): Promise<PerfAdjustment[]> {
@@ -30,9 +47,20 @@ export async function fetchPerfAdjustments(supabase: SupabaseClient): Promise<Pe
 const forBook = (adjs: PerfAdjustment[], portfolio: string) =>
   adjs.filter((a) => (a.portfolio ?? "quant") === portfolio);
 
-/** Cumulative $ correction for a book (all dates). Apply to equity / Portfolio Value. */
-export function cumulativeAdjustment(adjs: PerfAdjustment[], portfolio: string): number {
-  return forBook(adjs, portfolio).reduce((s, a) => s + Number(a.amount ?? 0), 0);
+/**
+ * Cumulative $ correction for a book that is still ACTIVE as of `asOf` (default
+ * today). A correction whose `end_date` has passed is dropped, so current equity
+ * isn't double-counted once the underlying artifact resolves. Apply to equity /
+ * Portfolio Value.
+ */
+export function cumulativeAdjustment(
+  adjs: PerfAdjustment[],
+  portfolio: string,
+  asOf: string = todayUtc(),
+): number {
+  return forBook(adjs, portfolio)
+    .filter((a) => activeAt(a, asOf))
+    .reduce((s, a) => s + Number(a.amount ?? 0), 0);
 }
 
 /** $ correction dated `todayUtc` for a book. Apply to Daily P&L only. */
@@ -48,14 +76,16 @@ export function totalAdjustmentMagnitude(adjs: PerfAdjustment[]): number {
 }
 
 /**
- * Cumulative-return percentage-point impact for a book ON OR AFTER `date`.
+ * Cumulative-return percentage-point impact for a book at time-series point `date`.
  * A fixed-$ artifact shifts cumulative return by amount/$100k pp for every point
- * from its date onward — used to correct equity-snapshot time series.
+ * from its `date` until its `end_date` (if it has resolved) — used to correct the
+ * equity-snapshot series for the depressed window while keeping post-resolution
+ * points honest.
  */
 export function adjustmentPpAt(adjs: PerfAdjustment[], portfolio: string, date: string): number {
   return (
     forBook(adjs, portfolio)
-      .filter((a) => a.date && a.date <= date)
+      .filter((a) => a.date && a.date <= date && (!a.end_date || date <= a.end_date))
       .reduce((s, a) => s + Number(a.amount ?? 0), 0) / (STARTING_EQUITY / 100)
   );
 }

@@ -67,10 +67,12 @@ export function PortfolioComparisonCard() {
         const p = byDate.get(r.snapshot_date) ?? { date: r.snapshot_date, quant: null, conviction: null, spy: null };
         if (r.portfolio === "quant") {
           p.quant = r.portfolio_cumulative_return;
+          // SPY line uses ONLY quant's snapshot (SPY since the Mar-11 inception).
+          // Conviction's spy_cumulative_return is measured since its OWN (June)
+          // inception — splicing the two would make the SPY line jump baselines.
           p.spy = r.spy_cumulative_return;
         } else if (r.portfolio === "conviction") {
           p.conviction = r.portfolio_cumulative_return;
-          if (p.spy === null) p.spy = r.spy_cumulative_return;
         }
         byDate.set(r.snapshot_date, p);
       }
@@ -100,8 +102,14 @@ export function PortfolioComparisonCard() {
     );
   }
 
-  const latest = points.length ? points[points.length - 1] : null;
-  const latestConviction = [...points].reverse().find((p) => p.conviction !== null)?.conviction ?? null;
+  // Latest value per series uses the last NON-NULL point, so a missing newest
+  // snapshot for one book (e.g. quant hasn't recorded today yet while conviction
+  // has) doesn't blank its headline or fall back to a different SPY baseline.
+  const lastNonNull = (key: "quant" | "conviction" | "spy") =>
+    [...points].reverse().find((p) => p[key] !== null)?.[key] ?? null;
+  const latestQuant = lastNonNull("quant");
+  const latestConviction = lastNonNull("conviction");
+  const latestSpy = lastNonNull("spy");
 
   return (
     <Card>
@@ -119,9 +127,9 @@ export function PortfolioComparisonCard() {
             </p>
           </div>
           <div className="flex gap-6">
-            <LatestStat label="Quant Core" value={latest?.quant ?? null} color="text-foreground" />
+            <LatestStat label="Quant Core" value={latestQuant} color="text-foreground" />
             <LatestStat label="Conviction" value={latestConviction} color="text-indigo-500" />
-            <LatestStat label="SPY" value={latest?.spy ?? null} color="text-muted-foreground" />
+            <LatestStat label="SPY" value={latestSpy} color="text-muted-foreground" />
           </div>
         </div>
 

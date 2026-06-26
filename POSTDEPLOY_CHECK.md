@@ -6,6 +6,17 @@ Ongoing checklist of features/behaviors to verify after deployment. When reviewi
 
 ## Pending Verification
 
+### Performance — KLAC correction expiry + chart alignment (Jun 26)
+**Trigger**: Dashboard `/dashboard` load (live cards read immediately); chart fully aligns after the next quant `equity_snapshots` row records (EOD reflection).
+- [ ] Overall Return, Alpha, and Holdings Portfolio Value now show the TRUE figure (~+1.8–2%, alpha negative) — the +$8.2k KLAC add-back is no longer applied to live equity (it has `end_date` 2026-06-25, now past)
+- [ ] The "incl. +$8.2k KLAC split-artifact correction" disclosure no longer appears on the live cards (Overall Return / Alpha / Holdings)
+- [ ] Strategy Health "Major Under" and the Alpha card now agree on direction (both reflect Quant Core lagging SPY) — no more +1.80% alpha contradicting "Major Under"
+- [ ] Comparison chart: the historical curve (Jun 12–25) keeps the +8.2pp correction (smooth), and points from Jun 26 on do NOT (honest); a small step at Jun 25→26 is expected (fixed-$ patch vs restored value)
+- [ ] Chart legend: Quant Core shows its last non-null value (not "—") when today's quant snapshot hasn't landed; SPY legend reads ~+8.2% (quant/Mar-11 basis), not −1.3% (conviction/June basis)
+- [ ] Chart SPY line no longer nosedives at the right edge (baseline splice fixed)
+- [ ] Daily email (`send_daily_subscription_emails`): per-book equity/return drop the expired correction; the KLAC footnote no longer renders
+- [ ] **Regression**: a future correction with NO `end_date` still applies indefinitely (don't let the expiry logic drop open-ended corrections)
+
 ### Daily Digest — Key News section (Jun 23)
 **Trigger**: Next daily subscription email send (`send_daily_subscription_emails()`), after an AI cycle refresh has populated `ai_cycle_signals`.
 - [ ] Email renders a "Key News · AI super-cycle" section between the AI Super-Cycle band and Today's Trades

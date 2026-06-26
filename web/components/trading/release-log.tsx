@@ -11,6 +11,16 @@ interface ReleaseEntry {
 
 const RELEASES: ReleaseEntry[] = [
   {
+    version: "v1.10",
+    date: "Jun 26",
+    title: "Corrected KLAC split-artifact adjustment + chart alignment",
+    items: [
+      "The one-time KLAC split-artifact correction now expires automatically once the position was restored in the account — it was still being added to live equity after the shares came back, overstating Quant Core's headline return (~+1.8% true vs ~+10% shown). Return, alpha, and Portfolio Value now reflect true mark-to-market",
+      "The correction still applies to the historical equity curve for the window the position was missing (Jun 12–25), so the chart stays smooth without inflating the current number",
+      "Fixed the comparison-chart legend: Quant Core no longer shows blank when its newest snapshot hasn't landed yet, and the SPY line no longer splices two inception baselines (which made SPY read −1.3% instead of +8.2%)",
+    ],
+  },
+  {
     version: "v1.8",
     date: "Jun 23",
     title: "Daily Digest: Key News + cleaner layout",
