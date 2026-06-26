@@ -199,6 +199,13 @@ memory snapshots); the LLM judges severity and writes the verdict. Anchored to a
 - Same reviewer-table migration prereq as everything else (see setup).
 - `PROPOSAL-strategy-spec.md`: shared declarative strategy spec (trader enforces + reviewer audits) —
   would make the deferred rules verifiable and eliminate the reviewer's second-copy drift.
+- **regime_gate buy-time guard (fast-follow):** `regime_gate` (the only `fail`-capable memory rule)
+  flags *all* in-window buys when a hard-block regime is recorded in-window, without checking
+  `buy.created_at >= regime.updated_at`. Benign today (the trader scans/records regime *before*
+  trading), but a cheap timestamp guard would close the one theoretical false-`fail` path.
+- Minor polish noted in review: a `_ts_gt` helper for the oblique `factor_weights_stale` expression;
+  explicit `subject=run_id` mode reads a run by id without the `autonomous_loop` graph filter
+  (pre-existing, shared with the sibling skills; `is_finished` still applies).
 
 ---
 

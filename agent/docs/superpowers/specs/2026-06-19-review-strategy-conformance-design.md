@@ -90,9 +90,11 @@ promote to single-source-of-truth. (B) is a trader-side change (ownership bounda
 - **Run identity & window** come from the LangSmith trace root (graph-filtered to `autonomous_loop`,
   `is_finished` only) via the shared `run_cursor` plumbing — `run_id`, `start_time`, `end_time`.
 - **The actions under judgment** are the trades/decisions executed *during this run's window*.
-- **The evidence to evaluate them** includes prior ledger history (a trailing lookback, default
-  **30 days** of `trades`) — because anti-churn matches a SELL to a BUY from earlier runs, and
-  point-in-time position count must reconstruct holdings that predate this run.
+- **The evidence to evaluate them** includes prior ledger history — the **full trade ledger up to
+  run end** — because anti-churn matches a SELL to a BUY from earlier runs, and point-in-time
+  position count must reconstruct *all* holdings, including positions opened long before this run.
+  (Implementation note: an earlier 30-day trailing window was dropped during build — it under-counted
+  long-held positions, producing false "under-invested" warns and missed over-cap states.)
 - **Reconstruction is deterministic** from the `trades` ledger: open BUY lots minus matched SELLs,
   replayed to any `as_of` timestamp. Stop/TP exits are identifiable (`order_class = 'bracket_fill'`,
   thesis `"Bracket {stop_loss|take_profit} executed…"`) and exempt from the min-hold rule.
@@ -162,7 +164,7 @@ strategy grows. The declared-rule set is the dev-time mirror of the runtime spec
 ## 7. Atomic unit, sweep, watermark (reuses existing plumbing)
 
 - **Atomic unit:** one `autonomous_loop` run. The unit of *judgment* is that run's actions; the unit
-  of *evidence* includes the trailing 30-day ledger needed to evaluate them.
+  of *evidence* is the full trade ledger up to run end, needed to evaluate them.
 - **Sweep / watermark:** reuses `run_cursor` (`is_finished`, `select_unreviewed`, `advance_cursor`)
   unchanged. Independent watermark namespace `conformance`, bound by
   `begin_review("conformance", …)`; the LLM chooses only `scope=`, never a raw namespace.
@@ -196,8 +198,8 @@ strategy grows. The declared-rule set is the dev-time mirror of the runtime spec
 1. `begin_review("conformance", …)` → binds memory, returns bounded priors.
 2. `get_strategy_conformance_runs()` → `run_cursor.select_unreviewed` picks finished, unreviewed
    `autonomous_loop` runs.
-3. For each run: read `start_time`/`end_time`; pull `trades` (run window + 30-day trailing),
-   `risk_settings`, `factor_weights` (+`adjusted_at`), `factor_rankings`, `market_regime`.
+3. For each run: read `start_time`/`end_time`; pull `trades` (full ledger up to run end),
+   `factor_weights` (+`updated_at`), `factor_rankings` (+`updated_at`), `market_regime` (+`updated_at`).
 4. `resolve_spec(run_date)` → declared thresholds in force then.
 5. `classify_conformance(context)` → per-rule facts; `run_severity` → overall.
 6. LLM reads facts, writes verdict prose, calls `write_review(review_type="conformance", …)`.
