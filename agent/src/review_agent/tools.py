@@ -36,7 +36,10 @@ from review_agent.tool_fidelity import (
 from review_agent.operation_success import (
     extract_operations, build_probe_sql, classify_operation, run_severity,
 )
-from datetime import datetime as _dt
+from review_agent.strategy_conformance import (
+    resolve_spec, classify_conformance, run_severity as conformance_run_severity,
+)
+from datetime import datetime as _dt, timedelta as _td
 
 
 def _thread_id(config: RunnableConfig | None) -> str:
@@ -268,6 +271,81 @@ def get_operation_success_runs(subject: str | None = None, config: RunnableConfi
     return {"runs": out, "skipped_in_progress": skipped}
 
 
+def _conformance_trades_sql(window_start: str, run_end: str) -> str:
+    return (
+        "SELECT symbol, side, order_class, quantity, filled_quantity, filled_avg_price, "
+        "stop_loss_price, status, created_at, thesis FROM trades "
+        f"WHERE created_at >= '{window_start}' AND created_at <= '{run_end}' "
+        "AND status ILIKE '%filled%' ORDER BY created_at ASC"
+    )
+
+
+def _ts_ge(a: str | None, b: str) -> bool:
+    try:
+        return _dt.fromisoformat(str(a)) >= _dt.fromisoformat(str(b))
+    except (TypeError, ValueError):
+        return False
+
+
+def _within(ts: str | None, start: str, end: str) -> bool:
+    return bool(ts) and _ts_ge(ts, start) and _ts_ge(end, ts)
+
+
+def get_strategy_conformance_runs(subject: str | None = None, config: RunnableConfig = None) -> dict:
+    """Resolve trader runs to audit and return their DETERMINISTIC conformance facts.
+
+    For each finished run: pull the trade ledger (run window + 30-day trailing) and three
+    memory snapshots read-only, resolve the declared strategy in force at run time, and
+    classify each rule. Sweep mode (subject None) = runs newer than the conformance
+    watermark; explicit mode (subject a run_id) = just that run. You INTERPRET the statuses,
+    write a verdict per run with write_review, then call mark_run_reviewed(run_id, start_time).
+
+    Returns: {"runs": [{"run_id","start_time","run_severity","rules":[...]}],
+              "skipped_in_progress": [...]}.
+    """
+    rt = _get_active(_thread_id(config))
+    if rt is None:
+        raise ValueError("No active review — call begin_review first.")
+    if subject:
+        roots = read_run_trace(run_id=subject)["runs"]
+    else:
+        cursor = _read_watermark(rt)
+        roots = select_unreviewed(read_run_trace(limit=10)["runs"], cursor, cold_start_n=_COLD_START_N)
+
+    fw = read_agent_memory("factor_weights")
+    fr = read_agent_memory("factor_rankings")
+    mr = read_agent_memory("market_regime")
+
+    out, skipped = [], []
+    for run in roots:
+        if not is_finished(run):
+            skipped.append(run["run_id"])
+            continue
+        run_start = run["start_time"]
+        run_end = run.get("end_time") or run_start
+        try:
+            window_start = (_dt.fromisoformat(run_start) - _td(days=30)).isoformat()
+        except (TypeError, ValueError):
+            window_start = run_start
+        res = query_database(_conformance_trades_sql(window_start, run_end))
+        history = [] if res.get("error") else (res.get("rows") or [])
+        window = [t for t in history if _ts_ge(t.get("created_at"), run_start)]
+        context = {
+            "run_id": run["run_id"], "run_start": run_start, "run_end": run_end,
+            "spec": resolve_spec(run_start[:10]),
+            "trades_window": window, "trades_history": history,
+            "factor_weights": (fw or {}).get("value"),
+            "factor_weights_stale": _ts_ge(fw.get("updated_at"), run_end) and (fw.get("updated_at") != run_end) if fw else False,
+            "factor_rankings": (fr or {}).get("value"),
+            "market_regime": (mr or {}).get("value"),
+            "market_regime_in_window": _within(mr.get("updated_at"), run_start, run_end) if mr else False,
+        }
+        facts = classify_conformance(context)
+        out.append({"run_id": run["run_id"], "start_time": run_start,
+                    "run_severity": conformance_run_severity(facts), "rules": facts})
+    return {"runs": out, "skipped_in_progress": skipped}
+
+
 REVIEW_TOOLS = [
     # evidence (read-only)
     query_database,
@@ -287,4 +365,6 @@ REVIEW_TOOLS = [
     mark_run_reviewed,
     # operation-success audit (reuses mark_run_reviewed for the watermark)
     get_operation_success_runs,
+    # conformance audit (reuses mark_run_reviewed for the watermark)
+    get_strategy_conformance_runs,
 ]

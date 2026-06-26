@@ -155,6 +155,9 @@ def _check_position_count(context: dict) -> dict:
     cap = context["spec"]["max_positions"]
     floor = context["spec"]["min_positions_soft"]
     history = context["trades_history"]
+    if not history:
+        return _fact("position_count", "unverifiable", "info",
+                     "No trade history available to assess position count.", {})
     overages = []
     for t in context["trades_window"]:
         if str(t.get("side")).lower() != "buy":
