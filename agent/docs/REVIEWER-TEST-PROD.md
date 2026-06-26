@@ -164,6 +164,44 @@ correct FAIL verdict, persisted to local Supabase. NOT yet run against real clou
 
 ---
 
+## 3. `review-strategy-conformance` (rebuilt 2026-06-25; validated locally, not yet on cloud)
+
+**What it does:** Audits whether a run obeyed the DECLARED strategy, point-in-time. Deterministic
+facts from `get_strategy_conformance_runs` (trace for run identity/window × `trades` ledger + 3
+memory snapshots); the LLM judges severity and writes the verdict. Anchored to an effective-dated
+`STRATEGY_SPEC_VERSIONS` so it survives the strategy changing — no thresholds in the markdown.
+
+**How to test:** *"Run a conformance review of run `<run_id>`."* Inspect the new `agent_reviews` row
++ the `rules` facts it cited.
+
+### ✅ What good looks like
+- An `agent_reviews` row, `review_type='conformance'`, with per-rule facts in `evidence_refs`.
+- Hard breach (early discretionary sell / missing stop / buy in hard-block regime) → `fail` naming
+  the trade. Soft slip (>8 positions, stale weights) → `warn`. Clean → `pass`.
+- `conformance` watermark advanced; a re-run audits only new runs.
+
+### 🚩 Red flags
+- **A false fail off missing/changed data.** `risk_limit_leak`, `sell_justification`, `ai_soft_caps`
+  must read `unverifiable`; a dead probe must yield `pass`/`info`, never `fail`.
+- **Hardcoded thresholds.** Verdicts must trace to the resolved declared spec, not numbers in the
+  markdown. If the strategy's `max_positions`/min-hold change, only `STRATEGY_SPEC_VERSIONS` should.
+- **bracket_fill exits tripping anti_churn.** Stop/TP exits are exempt from the min-hold rule.
+- **Auditing the wrong graph / an in-progress run.** Only finished `autonomous_loop` runs.
+
+### ⚠️ Known gotchas / limits (by design)
+- v1 defers `risk_limit_leak` (needs point-in-time equity/earnings), the regime caution-tier, and
+  the rank/AI-cap rules — all `unverifiable`. See `PROPOSAL-strategy-spec.md` for the shared-spec fix.
+- Trading-day counting is weekday-based (ignores market holidays).
+- Memory snapshots (`factor_weights`/`factor_rankings`/`market_regime`) are current values; checks
+  degrade to `unverifiable` when they changed after the run rather than guessing.
+
+### Open follow-ups (track, not blockers)
+- Same reviewer-table migration prereq as everything else (see setup).
+- `PROPOSAL-strategy-spec.md`: shared declarative strategy spec (trader enforces + reviewer audits) —
+  would make the deferred rules verifiable and eliminate the reviewer's second-copy drift.
+
+---
+
 ## (future skills append here)
 <!-- When the next reviewer skill is done, add a "## N. review-<name>" section above this line,
      same shape: one-line what-it-does, how to test, ✅ good, 🚩 red flags, ⚠️ gotchas, follow-ups. -->

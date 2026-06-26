@@ -205,6 +205,17 @@ Verify agent calls it autonomously on Mar 21.
 - [x] GTC (Mar 16-19) recognized as `hold_through` — all semi positions held through GTC window, no premature sells
 - [x] No false blocks — WDC BUY executed normally during GTC week, not blocked by catalyst guard ✅
 
+### review-strategy-conformance (rebuilt, trace-native) — first exercised on the next conformance review run
+- [ ] A clean run → `pass`; a run that sold inside the 5-day min hold (non-`bracket_fill`) → `fail` citing the trade.
+- [ ] A `bracket_fill` stop/TP exit inside 5 days does NOT trip anti_churn.
+- [ ] `position_count` warns (not fails) when > 8 open positions point-in-time.
+- [ ] `stops_present` fails a buy with NULL `stop_loss_price`.
+- [ ] `factor_weights_conformance` flags a run that scored with weights ≠ active `factor_weights`; reports `unverifiable` if weights changed after the run.
+- [ ] `regime_gate` fails a buy during a recorded hard-block regime (VIX>26 & breadth<30); `unverifiable` when no regime in-window.
+- [ ] `risk_limit_leak` / `sell_justification` / `ai_soft_caps` always `unverifiable` — never push severity to `fail`.
+- [ ] A dead/error `query_database` probe yields empty history and a `pass`/`info` run — never a false `fail`.
+- [ ] `conformance` watermark advances; a re-run audits only new runs.
+
 ---
 
 ## Verified (completed)
