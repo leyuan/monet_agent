@@ -2791,33 +2791,67 @@ def get_ai_infra_news(days: int = 4, per_symbol: int = 5, max_total: int = 40) -
 CONVICTION_TIERS = {"high": 0.40, "medium": 0.30, "starter": 0.20}
 CONVICTION_RISK_OVERRIDES = {"max_position_pct": 40, "max_total_exposure_pct": 95}
 
+# Staged-entry + active-management policy. A concentrated book that deploys its
+# full target on day one has no dry powder to add on a dip — the single most
+# valuable conviction move. So enter a fraction of the target up front, keep the
+# rest in reserve, ADD on intact-thesis dips, and TRIM parabolic overshoots to
+# bank gains and refill the reserve. Turns Conviction from "watch + exit" into
+# "watch + manage". All fractions are of the conviction TIER target; the target
+# (and the 95% book cap) remain the hard ceiling after adds.
+CONVICTION_STAGING = {
+    "starter_fraction": 0.66,    # deploy 66% of the tier target on initial entry
+    "add_dip_1": -0.08,          # add a tranche at ≥8% below entry (thesis intact)
+    "add_dip_2": -0.15,          # add a DEEPER tranche at ≥15% below entry
+    "add_tranche": 0.17,         # each add ≈17% of the tier target...
+    "deep_multiplier": 2.0,      # ...doubled at the deeper dip level (room-capped)
+    "trim_overshoot": 0.40,      # trim when ≥40% above entry
+    "trim_fraction": 0.25,       # trim 25% of the position on an overshoot
+    "add_cooldown_days": 1,      # don't add the same name on back-to-back runs
+    "trim_cooldown_days": 5,     # don't re-trim a name within a week
+}
 
-def size_cycle_position(symbol: str, conviction: str = "medium", portfolio: str = "conviction") -> dict:
-    """Size a concentrated Conviction-book position with a wide cyclical stop.
 
-    The Conviction book holds 1-3 names, each sized 20-40% of the book by
-    conviction tier. Because memory/AI-infra cyclicals are volatile, the
-    protective stop is intentionally WIDER than Quant Core's [3%,8%] — ~3x
-    ATR(14) clamped to [10%, 20%] — so ordinary swings don't shake you out
-    before the capex-cycle thesis plays out. The take-profit is generous (~3:1
-    reward:risk) so the bracket is valid without capping the ride; the
+def size_cycle_position(
+    symbol: str,
+    conviction: str = "medium",
+    portfolio: str = "conviction",
+    deploy_fraction: float | None = None,
+) -> dict:
+    """Size a STAGED initial Conviction-book entry with a wide cyclical stop.
+
+    The Conviction book holds 1-3 names, each with a tier TARGET of 20-40% of the
+    book. To keep dry powder for adding on dips, this deploys only a STARTER slice
+    of that target up front (``deploy_fraction``, default 66%) and records a
+    ``conviction_plan:{SYMBOL}`` memory so ``manage_cycle_positions()`` can add the
+    rest on intact-thesis dips and trim overshoots.
+
+    Because memory/AI-infra cyclicals are volatile, the protective stop is
+    intentionally WIDER than Quant Core's [3%,8%] — ~3x ATR(14) clamped to
+    [10%, 20%] — so ordinary swings don't shake you out before the capex-cycle
+    thesis plays out. The take-profit is generous (~3:1 reward:risk); the
     conviction-loop's hard exit rules manage the real exit.
 
     Args:
         symbol: Ticker to size.
-        conviction: "high" (40% of book), "medium" (30%), or "starter" (20%).
+        conviction: "high" (40% target), "medium" (30%), or "starter" (20%).
         portfolio: book to size against (default "conviction").
+        deploy_fraction: fraction of the tier target to deploy on THIS (initial)
+            entry; defaults to CONVICTION_STAGING["starter_fraction"]. Pass 1.0 to
+            deploy the full target with no reserve.
 
     Returns:
-        Dict with quantity, target_pct, current_price, stop_loss_price,
-        take_profit_price, stop_pct, and a rationale. Feed stop_loss_price +
-        take_profit_price straight into:
+        Dict with quantity (the starter slice), full_target_pct, deployed_pct,
+        reserve_pct, current_price, stop_loss_price, take_profit_price, stop_pct,
+        and a rationale. Feed stop_loss_price + take_profit_price straight into:
           place_order(symbol, "buy", quantity, take_profit_price=...,
                       stop_loss_price=..., portfolio="conviction",
                       risk_overrides=CONVICTION_RISK_OVERRIDES)
+        Use manage_cycle_positions() on later runs to deploy the reserve.
     """
     tier = (conviction or "medium").lower().strip()
     target_pct = CONVICTION_TIERS.get(tier, CONVICTION_TIERS["medium"])
+    frac = CONVICTION_STAGING["starter_fraction"] if deploy_fraction is None else float(deploy_fraction)
+    frac = min(1.0, max(0.05, frac))
 
     port = get_portfolio(portfolio)
     equity = float(port.get("equity", 0))
@@ -2850,25 +2884,46 @@ def size_cycle_position(symbol: str, conviction: str = "medium", portfolio: str 
     if price <= 0:
         return {"error": f"No valid price for {symbol}."}
 
-    target_dollars = min(equity * target_pct, cash)
+    # Deploy only the STARTER slice of the target; keep the rest as dry powder.
+    target_dollars = min(equity * target_pct * frac, cash)
     quantity = int(target_dollars // price)
     if quantity < 1:
         return {
             "error": (
                 f"Insufficient cash in {portfolio}: {symbol} is ${price:.0f}/share, "
-                f"target ${equity * target_pct:.0f} ({round(target_pct*100)}% of book), "
-                f"cash ${cash:.0f}."
+                f"starter ${equity * target_pct * frac:.0f} "
+                f"({round(target_pct*frac*100)}% of book = {round(frac*100)}% of a "
+                f"{round(target_pct*100)}% target), cash ${cash:.0f}."
             )
         }
 
     stop_loss_price = round(price * (1 - stop_pct), 2)
     take_profit_price = round(price * (1 + stop_pct * 3), 2)
 
+    # Persist the plan so manage_cycle_positions() knows the full target + entry.
+    plan = {
+        "symbol": symbol,
+        "tier": tier,
+        "target_pct": round(target_pct, 4),
+        "entry_price": round(price, 2),
+        "starter_fraction": round(frac, 3),
+        "reserve_pct": round(target_pct * (1 - frac), 4),
+        "opened_at": datetime.now().strftime("%Y-%m-%d"),
+    }
+    try:
+        get_supabase().table("agent_memory").upsert(
+            {"key": f"conviction_plan:{symbol}", "value": plan}, on_conflict="key"
+        ).execute()
+    except Exception as e:
+        logger.warning("Failed to persist conviction_plan:%s — %s", symbol, e)
+
     return {
         "symbol": symbol,
         "portfolio": portfolio,
         "conviction": tier,
-        "target_pct": round(target_pct * 100, 1),
+        "full_target_pct": round(target_pct * 100, 1),
+        "deployed_pct": round(target_pct * frac * 100, 1),
+        "reserve_pct": round(target_pct * (1 - frac) * 100, 1),
         "quantity": quantity,
         "target_dollars": round(quantity * price, 2),
         "current_price": round(price, 2),
@@ -2879,10 +2934,173 @@ def size_cycle_position(symbol: str, conviction: str = "medium", portfolio: str 
         "book_cash": round(cash, 2),
         "risk_overrides": CONVICTION_RISK_OVERRIDES,
         "rationale": (
-            f"{tier} conviction → {round(target_pct*100)}% of ${equity:,.0f} book "
-            f"= {quantity} sh @ ${price:.2f}. Wide {round(stop_pct*100,1)}% cyclical "
-            f"stop (3x ATR) at ${stop_loss_price}, TP ${take_profit_price}."
+            f"{tier} conviction → {round(target_pct*100)}% target; STAGED entry deploys "
+            f"{round(frac*100)}% now = {round(target_pct*frac*100)}% of ${equity:,.0f} book "
+            f"= {quantity} sh @ ${price:.2f}, keeping {round(target_pct*(1-frac)*100)}% in "
+            f"reserve for intact-thesis dips. Wide {round(stop_pct*100,1)}% cyclical stop "
+            f"(3x ATR) at ${stop_loss_price}, TP ${take_profit_price}."
         ),
+    }
+
+
+def manage_cycle_positions(portfolio: str = "conviction") -> dict:
+    """Post-entry management for the Conviction book — recommend ADD-on-dip and
+    TRIM-on-overshoot actions for held positions. Read-only on the broker; the
+    conviction-loop executes the returned actions with place_order.
+
+    For each held name (reference = its avg cost / broker unrealized %):
+      • ADD a tranche when it's ≥8% below entry AND the cycle thesis is INTACT
+        (capex not decelerating, cycle not cooling) AND there's room below the
+        conviction target AND cash is available. Deeper (≥15%) dips add more.
+        Adding to an INTACT-thesis dip is the highest-value conviction move; the
+        thesis gate is exactly what separates it from catching a falling knife.
+      • TRIM part of a winner ≥40% above entry — banks gains, cuts concentration
+        risk, and refills dry powder for the next dip.
+      • Otherwise HOLD.
+
+    Thesis-intact mirrors the loop's Step-1 hard-exit signals (inverted): if a
+    hard exit would fire, this never recommends an ADD. Cooldowns (from the
+    trades log) stop it adding/trimming the same name on back-to-back runs.
+
+    Returns:
+        Dict with thesis_intact, book cash, and a list of per-name actions
+        ({symbol, action: "add"|"trim"|"hold", quantity, price, from_entry_pct,
+        reason}). Feed each add/trim into:
+          place_order(symbol, "buy"|"sell", quantity, portfolio="conviction",
+                      risk_overrides=CONVICTION_RISK_OVERRIDES)
+    """
+    sb = get_supabase()
+    cfg = CONVICTION_STAGING
+
+    def _mem(key: str) -> dict:
+        try:
+            r = sb.table("agent_memory").select("value").eq("key", key).maybe_single().execute()
+            return (r.data or {}).get("value", {}) if r and r.data else {}
+        except Exception:
+            return {}
+
+    # ── Thesis intact = NOT (capex rollover or cycle cooling) ──
+    capex, dur = _mem("ai_capex_tracker"), _mem("ai_cycle_durability")
+    broken: list[str] = []
+    if capex.get("guidance_direction") == "decelerating":
+        broken.append("capex decelerating")
+    if (capex.get("hyperscaler_total_yoy") or 0) < 0:
+        broken.append("hyperscaler capex YoY negative")
+    if dur.get("phase") == "cooling":
+        broken.append("cycle cooling")
+    if (dur.get("score") if dur.get("score") is not None else 100) < 40:
+        broken.append("durability < 40")
+    thesis_intact = not broken
+
+    try:
+        port = get_portfolio(portfolio)
+    except Exception as e:
+        return {"error": f"Could not load {portfolio} book: {e}"}
+    equity = float(port.get("equity") or 0)
+    cash = float(port.get("cash") or 0)
+    positions = port.get("positions") or []
+    today = datetime.now().date()
+
+    def _last_fill_days_ago(symbol: str, side: str) -> int | None:
+        try:
+            r = (
+                sb.table("trades").select("created_at")
+                .eq("portfolio", portfolio).eq("symbol", symbol).eq("side", side)
+                .in_("status", ["filled", "OrderStatus.FILLED", "OrderStatus.PARTIALLY_FILLED"])
+                .order("created_at", desc=True).limit(1).execute()
+            )
+            if r.data:
+                d = datetime.fromisoformat(str(r.data[0]["created_at"]).replace("Z", "+00:00")).date()
+                return (today - d).days
+        except Exception:
+            pass
+        return None
+
+    actions: list[dict] = []
+    for pos in positions:
+        symbol = pos.get("symbol")
+        qty = float(pos.get("qty") or 0)
+        if not symbol or qty <= 0:
+            continue
+        mv = float(pos.get("market_value") or 0)
+        price = (mv / qty) if qty else 0.0
+        avg = float(pos.get("avg_entry_price") or 0)
+        plpc = pos.get("unrealized_plpc")
+        from_entry = float(plpc) if plpc is not None else ((price / avg - 1) if avg else 0.0)
+        plan = _mem(f"conviction_plan:{symbol}")
+        target_pct = float(plan.get("target_pct") or CONVICTION_TIERS["medium"])
+        pos_pct = (mv / equity) if equity else 0.0
+        room_pct = max(0.0, target_pct - pos_pct)
+
+        act = {
+            "symbol": symbol,
+            "price": round(price, 2),
+            "from_entry_pct": round(from_entry * 100, 1),
+            "position_pct": round(pos_pct * 100, 1),
+            "target_pct": round(target_pct * 100, 1),
+        }
+
+        # ── TRIM: parabolic overshoot ──
+        if from_entry >= cfg["trim_overshoot"]:
+            ago = _last_fill_days_ago(symbol, "sell")
+            if ago is not None and ago < cfg["trim_cooldown_days"]:
+                act.update(action="hold", quantity=0,
+                           reason=f"up {from_entry*100:.0f}% but trimmed {ago}d ago (cooldown)")
+            else:
+                tq = max(1, int(qty * cfg["trim_fraction"]))
+                act.update(action="trim", quantity=tq,
+                           reason=f"up {from_entry*100:.0f}% from entry — trim {cfg['trim_fraction']*100:.0f}% "
+                                  f"({tq} sh) to bank gains + refill the dip reserve")
+            actions.append(act)
+            continue
+
+        # ── ADD: intact-thesis dip ──
+        if from_entry <= cfg["add_dip_1"]:
+            if not thesis_intact:
+                act.update(action="hold", quantity=0,
+                           reason=f"down {from_entry*100:.0f}% but thesis BROKEN ({', '.join(broken)}) — "
+                                  f"do NOT average down; Step 1 hard-exit should sell")
+            elif room_pct <= 0.02:
+                act.update(action="hold", quantity=0,
+                           reason=f"down {from_entry*100:.0f}% but already at target "
+                                  f"({pos_pct*100:.0f}%≈{target_pct*100:.0f}%) — no room")
+            else:
+                ago = _last_fill_days_ago(symbol, "buy")
+                if ago is not None and ago <= cfg["add_cooldown_days"]:
+                    act.update(action="hold", quantity=0,
+                               reason=f"down {from_entry*100:.0f}%, thesis intact, but added {ago}d ago (cooldown)")
+                else:
+                    deep = from_entry <= cfg["add_dip_2"]
+                    frac = cfg["add_tranche"] * (cfg["deep_multiplier"] if deep else 1.0)
+                    add_dollars = min(equity * target_pct * frac, room_pct * equity, cash)
+                    aq = int(add_dollars // price) if price > 0 else 0
+                    if aq < 1:
+                        act.update(action="hold", quantity=0,
+                                   reason=f"down {from_entry*100:.0f}%, thesis intact, but cash "
+                                          f"${cash:,.0f} insufficient for a tranche")
+                    else:
+                        new_pct = (mv + aq * price) / equity * 100 if equity else 0
+                        act.update(action="add", quantity=aq,
+                                   reason=f"down {from_entry*100:.0f}% from entry, thesis intact "
+                                          f"(capex {capex.get('guidance_direction','?')}) — "
+                                          f"{'DEEP ' if deep else ''}add {aq} sh, lifts "
+                                          f"{pos_pct*100:.0f}%→{new_pct:.0f}% of book (target {target_pct*100:.0f}%)")
+            actions.append(act)
+            continue
+
+        act.update(action="hold", quantity=0,
+                   reason=f"{from_entry*100:+.0f}% from entry — within band, hold")
+        actions.append(act)
+
+    n = lambda a: sum(1 for x in actions if x["action"] == a)  # noqa: E731
+    return {
+        "portfolio": portfolio,
+        "thesis_intact": thesis_intact,
+        "thesis_note": "intact" if thesis_intact else f"BROKEN: {', '.join(broken)}",
+        "book_equity": round(equity, 2),
+        "book_cash": round(cash, 2),
+        "actions": actions,
+        "summary": f"{n('add')} add, {n('trim')} trim, {n('hold')} hold",
     }
 
 
@@ -5408,6 +5626,7 @@ AUTONOMOUS_TOOLS = [
     get_ai_infra_news,
     # Conviction portfolio: concentrated cyclical sizing
     size_cycle_position,
+    manage_cycle_positions,
     send_weekly_cycle_report,
     # Tier 1 strategy health monitoring
     audit_factor_ic,

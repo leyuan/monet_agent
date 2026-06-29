@@ -11,6 +11,17 @@ interface ReleaseEntry {
 
 const RELEASES: ReleaseEntry[] = [
   {
+    version: "v1.11",
+    date: "Jun 29",
+    title: "Conviction: staged entries + active management",
+    items: [
+      "Conviction now enters in stages — it deploys ~66% of a name's target up front and keeps the rest as dry powder, so it can buy a dip instead of being fully committed on day one",
+      "Adds to a position on an ≥8% dip ONLY when the cycle thesis is still intact (capex not rolling over) — deeper 15% dips add more; if the thesis is breaking it exits instead of averaging down",
+      "Trims a slice when a name runs ≥40% above entry — banks gains, cuts concentration risk, and refills the dip reserve so the book recycles its own dry powder",
+      "New manage_cycle_positions() tool runs each Conviction loop and recommends add/trim/hold per holding with the reasoning; turns the book from 'watch + exit' into 'watch + manage'",
+    ],
+  },
+  {
     version: "v1.8",
     date: "Jun 23",
     title: "Daily Digest: Key News + cleaner layout",
