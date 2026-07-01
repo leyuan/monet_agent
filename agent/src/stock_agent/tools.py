@@ -1343,11 +1343,39 @@ def read_agent_memory(key: str) -> dict:
     return {"key": key, "value": None}
 
 
-def read_all_agent_memory() -> dict:
-    """Read all persistent memory entries at once.
+def read_agent_memory_keys(keys: list[str]) -> dict:
+    """Read several specific memory entries in one call.
 
-    Use this at the start of each loop to load full context efficiently,
-    instead of reading keys one at a time.
+    PREFER THIS over read_all_agent_memory when you know which keys you need
+    (e.g. conviction_universe, ai_capex_tracker, ai_cycle_durability). It fetches
+    only the requested keys, keeping context small — read_all_agent_memory now
+    returns hundreds of KB of accumulated decision:*/stopped:* history and should
+    only be used for a genuine full audit.
+
+    Args:
+        keys: List of memory keys to fetch (e.g. ['conviction_universe', 'ai_capex_tracker']).
+
+    Returns:
+        Dict mapping each requested key to its value and updated_at (value=None if missing).
+    """
+    out = {}
+    for key in keys:
+        result = read_memory(key)
+        out[key] = {
+            "value": result["value"] if result else None,
+            "updated_at": result.get("updated_at") if result else None,
+        }
+    return {"memories": out, "count": len(out)}
+
+
+def read_all_agent_memory() -> dict:
+    """Read EVERY persistent memory entry at once — use sparingly.
+
+    WARNING: the memory table accumulates write-once decision:* and stopped:*
+    audit records and is now hundreds of KB. Calling this in a loop dumps a large
+    blob into context and forces expensive re-reads. If you know which keys you
+    need, use read_agent_memory_keys([...]) (batched) or read_agent_memory(key)
+    instead. Reserve this for a genuine full-memory audit.
 
     Returns:
         Dict mapping memory keys to their values and timestamps.
@@ -5372,6 +5400,7 @@ AUTONOMOUS_TOOLS = [
     get_open_orders,
     attach_bracket_to_position,
     read_agent_memory,
+    read_agent_memory_keys,
     read_all_agent_memory,
     write_agent_memory,
     write_journal_entry,

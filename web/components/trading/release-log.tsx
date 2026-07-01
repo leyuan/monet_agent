@@ -11,6 +11,16 @@ interface ReleaseEntry {
 
 const RELEASES: ReleaseEntry[] = [
   {
+    version: "v1.12",
+    date: "Jul 1",
+    title: "Leaner memory loads — cheaper, faster runs",
+    items: [
+      "Conviction runs now fetch only the handful of memory keys they actually need in one batched call, instead of loading the entire memory table (which had grown to ~800 entries of accumulated decision history)",
+      "Cuts the per-run context by ~100× on the memory read — trims run cost and latency, and removes a spike where a single run could account for ~8% of the week's compute",
+      "No change to decisions or trading behavior — purely an efficiency fix to how the agent loads its own context",
+    ],
+  },
+  {
     version: "v1.8",
     date: "Jun 23",
     title: "Daily Digest: Key News + cleaner layout",
