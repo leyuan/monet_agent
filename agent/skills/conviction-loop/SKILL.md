@@ -85,8 +85,13 @@ fab issue). One qualitative sanity check — then proceed.
 2. **Conviction tier**: `high` (40% of book) only when the cycle is `full_build`
    AND capex accelerating AND the name is the clear leader; `medium` (30%) for a
    solid setup; `starter` (20%) when you want exposure but the signal is early.
-3. **Size**: `size_cycle_position(symbol, conviction="<tier>")`. It returns
-   `quantity`, `stop_loss_price`, `take_profit_price`, and `risk_overrides`.
+3. **Size (STAGED)**: `size_cycle_position(symbol, conviction="<tier>")` deploys a
+   ~66% STARTER of the tier target and keeps the rest as dry powder — it returns
+   the starter `quantity`, `deployed_pct`/`reserve_pct`, `stop_loss_price`,
+   `take_profit_price`, and writes a `conviction_plan:{SYMBOL}` so Step 3.5 can add
+   the reserve on dips. Do NOT deploy the full target up front — the reserve is
+   what lets you buy an intact-thesis dip. (Pass `deploy_fraction=1.0` only if you
+   deliberately want a full-size entry with no reserve.)
 4. **Execute**:
    ```
    place_order(
@@ -101,6 +106,38 @@ fab issue). One qualitative sanity check — then proceed.
 
 Keep total Conviction names ≤ 3. Do not diversify for its own sake — concentration
 is the point. One or two high-conviction names beats five half-convictions here.
+
+---
+
+## Step 3.5 — MANAGE held positions (add on dips, trim overshoots)
+
+After entry there's still work: a conviction book that's fully deployed and only
+ever exits is leaving its best move — buying an intact-thesis dip — on the table.
+Call **`manage_cycle_positions("conviction")`**. It checks each held name against
+the SAME thesis signals as Step 1 and returns `add` / `trim` / `hold` actions:
+
+- **ADD** (name ≥8% below entry, thesis intact, room below target, cash available)
+  — deploys reserve into the dip. Execute it:
+  ```
+  place_order(symbol, "buy", <quantity>, thesis="<dip add: % below entry + the
+              still-intact gate readings>", portfolio="conviction",
+              risk_overrides=CONVICTION_RISK_OVERRIDES)
+  ```
+- **TRIM** (name ≥40% above entry) — bank a slice, refill dry powder:
+  ```
+  place_order(symbol, "sell", <quantity>, thesis="<trim overshoot: % above entry>",
+              portfolio="conviction", risk_overrides=CONVICTION_RISK_OVERRIDES)
+  ```
+- **HOLD** — nothing to do; the `reason` tells you why (within band, no room,
+  cooldown, or thesis broken).
+
+**Critical discipline**: if `thesis_intact` is **false**, the tool will NOT
+recommend adds — it returns HOLD with the broken reason. Do not override and
+average down into a breaking thesis; that's a Step-1 EXIT, not an add. Adding is
+only for dips where the cycle thesis still holds.
+
+After executing, re-run reflects in the next loop (cooldowns prevent same-name
+adds/trims on back-to-back runs).
 
 ---
 

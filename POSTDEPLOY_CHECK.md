@@ -15,6 +15,18 @@ Ongoing checklist of features/behaviors to verify after deployment. When reviewi
 - [ ] **Failure mode**: a missing key returns `value: None` without erroring the loop
 - [ ] Factor loop / reflection runs (which still use `read_all_agent_memory` if any) are unaffected — no import or registration errors
 
+### Conviction — staged entries + active management (Jun 29)
+**Trigger**: Next "Conviction Loop" runs. **Local dry-run passed Jun 29** (manage_cycle_positions on live book: thesis intact, WDC −10% → ADD 9 sh, MU/SNDK hold; book cash only ~$5.6k confirms the over-deployment the staging fixes).
+- [ ] `size_cycle_position()` now deploys ~66% of the tier target (returns `deployed_pct`/`reserve_pct`) and writes `conviction_plan:{SYMBOL}` with `target_pct` + `entry_price`
+- [ ] A new Conviction entry lands at the STARTER size (≈deployed_pct of book), not the full tier target; cash is preserved for adds
+- [ ] `manage_cycle_positions("conviction")` returns add/trim/hold per holding; ADD only when ≥8% below entry AND thesis_intact AND room below target AND cash available
+- [ ] **Critical**: when the thesis is broken (force `ai_capex_tracker.guidance_direction="decelerating"`), manage_cycle_positions recommends NO adds (HOLD with "thesis BROKEN" reason) — never averages down; Step 1 hard-exit sells instead
+- [ ] Deeper dip (≥15% below entry) sizes a larger add (deep_multiplier) but stays capped by remaining room to target and by book cash
+- [ ] TRIM fires when a name is ≥40% above entry (sells trim_fraction); refilled cash becomes available for the next dip add
+- [ ] Cooldowns: a name added on one run is not re-added the next (add_cooldown_days); trims respect trim_cooldown_days — derived from the trades log
+- [ ] Cold-start (positions with no `conviction_plan`): target defaults to medium 30%; oversized legacy positions (e.g. SNDK ~40%) get no adds (no room) and don't error
+- [ ] Conviction loop Step 3.5 executes the recommended adds/trims via `place_order(..., portfolio="conviction", risk_overrides=CONVICTION_RISK_OVERRIDES)` and journals the reason
+
 ### Daily Digest — Key News section (Jun 23)
 **Trigger**: Next daily subscription email send (`send_daily_subscription_emails()`), after an AI cycle refresh has populated `ai_cycle_signals`.
 - [ ] Email renders a "Key News · AI super-cycle" section between the AI Super-Cycle band and Today's Trades
