@@ -18,9 +18,12 @@ Run every step in order. This loop runs once per weekday.
 
 1. `reconcile_positions(portfolio="conviction")` — catch any bracket fills since last run.
 2. `get_portfolio("conviction")` — current Conviction positions, equity, cash.
-3. Read memory: `conviction_universe` (the candidate list), `ai_cycle_durability`,
-   `ai_capex_tracker`, and the latest two `ai_cycle_snapshots` rows (query the table)
-   — you need the prior snapshot to judge whether memory demand is rising or falling.
+3. Load memory in ONE batched call:
+   `read_agent_memory_keys(["conviction_universe", "ai_cycle_durability", "ai_capex_tracker", "ai_bubble_risk"])`.
+   Do NOT call `read_all_agent_memory` and do NOT `grep`/`read_file` the memory blob —
+   that dumps hundreds of KB of stale decision history into context. Then query the
+   `ai_cycle_snapshots` table for the latest two rows — you need the prior snapshot to
+   judge whether memory demand is rising or falling.
 
 ---
 

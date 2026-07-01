@@ -6,6 +6,15 @@ Ongoing checklist of features/behaviors to verify after deployment. When reviewi
 
 ## Pending Verification
 
+### Memory read cost — batched `read_agent_memory_keys` (Jul 1)
+**Trigger**: Next Conviction Loop runs (10am/1pm ET crons). **Local test passed Jul 1**: targeted 4-key read = 954 tok vs `read_all_agent_memory` = 104K tok (799 keys) → 109× smaller.
+- [ ] Conviction loop Step 0 calls `read_agent_memory_keys([...])` (batched) and does NOT call `read_all_agent_memory`
+- [ ] No `/large_tool_results/` offload for memory, and no `grep`/`read_file` against a memory blob in the trace
+- [ ] Run's total input tokens drop sharply vs the ~3.6M baseline of the Jun 24 15:00 run (target: well under 1M); per-run cost falls from ~$1–2.45 toward ~$0.5
+- [ ] All four keys (`conviction_universe`, `ai_capex_tracker`, `ai_cycle_durability`, `ai_bubble_risk`) come back populated; loop logic (exit checks, sizing) still fires correctly
+- [ ] **Failure mode**: a missing key returns `value: None` without erroring the loop
+- [ ] Factor loop / reflection runs (which still use `read_all_agent_memory` if any) are unaffected — no import or registration errors
+
 ### Conviction — staged entries + active management (Jun 29)
 **Trigger**: Next "Conviction Loop" runs. **Local dry-run passed Jun 29** (manage_cycle_positions on live book: thesis intact, WDC −10% → ADD 9 sh, MU/SNDK hold; book cash only ~$5.6k confirms the over-deployment the staging fixes).
 - [ ] `size_cycle_position()` now deploys ~66% of the tier target (returns `deployed_pct`/`reserve_pct`) and writes `conviction_plan:{SYMBOL}` with `target_pct` + `entry_price`
