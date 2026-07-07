@@ -6,6 +6,15 @@ Ongoing checklist of features/behaviors to verify after deployment. When reviewi
 
 ## Pending Verification
 
+### Memory read cost — `read_all_agent_memory` excludes audit history (Jul 7)
+**Trigger**: Next factor-loop / reflection / weekly-review runs (any skill that calls `read_all_agent_memory()`). **Local test passed Jul 7**: default 100 keys / ~39K tok vs `include_audit=True` 850 keys / ~112K tok; 750 audit records held back.
+- [ ] A factor-loop or reflection trace shows `read_all_agent_memory` returning the live-belief set (~40K tok) — NOT the ~104K blob; the Jul 3 17:00 factor loop's `read_all` + 2 blob re-reads pattern is gone
+- [ ] Live-belief keys still present in the result: `market_regime`, `factor_weights`, `factor_rankings`, `conviction_universe`, `ai_bubble_risk`, `stock:*`
+- [ ] No `decision:*` / `stopped:*` / `earnings_reaction:*` keys leak into the default result (`excluded` count > 0)
+- [ ] `load_agent_context()` (system prompt) is unaffected — recent decisions (last 7 days) still render; it calls `db.read_all_memory` directly, not the tool
+- [ ] Skills still behave correctly with beliefs-only memory (anti-churn / hold logic reads recent decisions from the system prompt or targeted `read_agent_memory`, not the full dump)
+- [ ] **Audit path**: a call with `include_audit=True` returns the full table (all decision:*/stopped:* records) for a genuine full-history audit
+
 ### Memory read cost — batched `read_agent_memory_keys` (Jul 1)
 **Trigger**: Next Conviction Loop runs (10am/1pm ET crons). **Local test passed Jul 1**: targeted 4-key read = 954 tok vs `read_all_agent_memory` = 104K tok (799 keys) → 109× smaller.
 - [ ] Conviction loop Step 0 calls `read_agent_memory_keys([...])` (batched) and does NOT call `read_all_agent_memory`
