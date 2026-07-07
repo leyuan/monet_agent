@@ -7,5 +7,8 @@
   "auth": {
     "path": "./src/stock_agent/auth.py:auth"
   },
+  "http": {
+    "app": "./src/stock_agent/bridge.py:app"
+  },
   "env": ".env"
 }

@@ -6,6 +6,16 @@ Ongoing checklist of features/behaviors to verify after deployment. When reviewi
 
 ## Pending Verification
 
+### Telegram bridge endpoint — `POST /handle` + `GET /health` (Jul 7)
+**Trigger**: First LangGraph Platform deployment after merge + first message relayed by the bridge sidecar. **Local verification passed Jul 7** (health ok; 401 without / with wrong key; real agent reply; same-session memory continuity across two messages).
+- [ ] `BRIDGE_API_KEY` is set in the deployment's environment before the sidecar goes live
+- [ ] `GET /health` on the deployed URL returns `200 {"status": "ok"}` with no auth
+- [ ] `POST /handle` with valid `X-API-Key` returns `{"text": "<full reply>", "done": true}` with a real chat-graph answer
+- [ ] Two messages with the same `session_id` continue one conversation (agent recalls the earlier message)
+- [ ] Bridge threads carry `origin: telegram-bridge` metadata and do NOT appear in any web user's chat thread list
+- [ ] **Failure mode**: missing or wrong `X-API-Key` → 401; `BRIDGE_API_KEY` unset in the deployment → every /handle request 401s (fail closed)
+- [ ] **Deployment check**: the in-process `get_client()` run works in the cloud deployment — `auth.py` admits unauthenticated callers only while `LANGGRAPH_ENV` is unset/`dev`; if the deployment sets it to prod, the loopback call will 401 and /handle returns 500 (needs a service token)
+
 ### Memory read cost — batched `read_agent_memory_keys` (Jul 1)
 **Trigger**: Next Conviction Loop runs (10am/1pm ET crons). **Local test passed Jul 1**: targeted 4-key read = 954 tok vs `read_all_agent_memory` = 104K tok (799 keys) → 109× smaller.
 - [ ] Conviction loop Step 0 calls `read_agent_memory_keys([...])` (batched) and does NOT call `read_all_agent_memory`

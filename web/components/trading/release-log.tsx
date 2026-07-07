@@ -11,6 +11,17 @@ interface ReleaseEntry {
 
 const RELEASES: ReleaseEntry[] = [
   {
+    version: "v1.13",
+    date: "Jul 7",
+    title: "Chat with Monet from Telegram",
+    items: [
+      "New bridge endpoint lets an external Telegram sidecar relay messages into Monet's existing chat brain and return the full reply",
+      "Each Telegram chat (DM or group) maps to its own persistent conversation, so Monet remembers the ongoing discussion per chat",
+      "Locked behind a shared-secret API key, with the same read-only rules as web chat — Monet still can't be told to place trades",
+      "Health endpoint added so the sidecar can monitor that Monet is reachable",
+    ],
+  },
+  {
     version: "v1.12",
     date: "Jul 1",
     title: "Leaner memory loads — cheaper, faster runs",
