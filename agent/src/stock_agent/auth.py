@@ -79,3 +79,19 @@ async def add_owner(
     # Regular users: scope to their own resources
     metadata["owner"] = ctx.user.identity
     return {"owner": ctx.user.identity}
+
+
+@auth.on.assistants
+async def on_assistants(
+    ctx: Auth.types.AuthContext,
+    value: dict,
+) -> dict | None:
+    """Assistants are shared graph configurations, not per-user data.
+
+    Overrides the global add_owner handler for assistants only (most-specific
+    handler wins), so every caller — including LangGraph Studio, which
+    authenticates as the fixed identity "langgraph-studio-user" — can list the
+    graphs. Without this, add_owner scopes assistants to the caller's identity
+    and Studio shows "No assistants found". Threads/crons/store stay owner-scoped.
+    """
+    return None
