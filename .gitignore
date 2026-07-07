@@ -34,6 +34,9 @@ out/
 .DS_Store
 Thumbs.db
 
+# Private notes (local-only, never committed)
+.private/
+
 # LangGraph local dev cache
 .langgraph_api/
 
@@ -42,3 +45,6 @@ supabase/.temp/
 
 # Backtest data cache (local-only; re-downloaded on demand)
 agent/backtest/.cache/
+
+# Local one-off dev trigger scripts (kept local, never committed)
+agent/scripts/run_*_local.py
