@@ -1368,26 +1368,41 @@ def read_agent_memory_keys(keys: list[str]) -> dict:
     return {"memories": out, "count": len(out)}
 
 
-def read_all_agent_memory() -> dict:
-    """Read EVERY persistent memory entry at once — use sparingly.
+# Write-once audit/log key prefixes. These accumulate unbounded (one row per
+# decision/stop per day) and are pure history — never needed as live context at
+# loop start. read_all_agent_memory() excludes them by default so the tool result
+# stays small. Recent decisions still surface in the system prompt via
+# load_agent_context(); a specific record is reachable with read_agent_memory(key).
+_AUDIT_PREFIXES = ("decision:", "stopped:", "earnings_reaction:")
 
-    WARNING: the memory table accumulates write-once decision:* and stopped:*
-    audit records and is now hundreds of KB. Calling this in a loop dumps a large
-    blob into context and forces expensive re-reads. If you know which keys you
-    need, use read_agent_memory_keys([...]) (batched) or read_agent_memory(key)
-    instead. Reserve this for a genuine full-memory audit.
+
+def read_all_agent_memory(include_audit: bool = False) -> dict:
+    """Read all LIVE persistent memory (beliefs, regime, scores, universe) at once.
+
+    By default this EXCLUDES write-once audit history (decision:*, stopped:*,
+    earnings_reaction:*), which is ~66% of the table and grows every loop — dumping
+    it into context is what made this call expensive. The excluded records are still
+    stored; recent decisions already appear in the system prompt, and a specific one
+    is reachable via read_agent_memory(key). If you know the exact keys you want,
+    prefer read_agent_memory_keys([...]).
+
+    Args:
+        include_audit: Set True ONLY for a genuine full-history audit — returns the
+            entire table including all decision:*/stopped:* records (large).
 
     Returns:
-        Dict mapping memory keys to their values and timestamps.
+        Dict with `memories` (key -> value/updated_at), `count`, and `excluded`
+        (number of audit records held back; 0 when include_audit=True).
     """
     rows = read_all_memory()
-    return {
-        "memories": {
-            row["key"]: {"value": row["value"], "updated_at": row.get("updated_at")}
-            for row in rows
-        },
-        "count": len(rows),
-    }
+    excluded = 0
+    memories = {}
+    for row in rows:
+        if not include_audit and row["key"].startswith(_AUDIT_PREFIXES):
+            excluded += 1
+            continue
+        memories[row["key"]] = {"value": row["value"], "updated_at": row.get("updated_at")}
+    return {"memories": memories, "count": len(memories), "excluded": excluded}
 
 
 def write_agent_memory(key: str, value: dict) -> dict:
