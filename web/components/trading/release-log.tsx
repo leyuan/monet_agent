@@ -11,7 +11,7 @@ interface ReleaseEntry {
 
 const RELEASES: ReleaseEntry[] = [
   {
-    version: "v1.13",
+    version: "v1.14",
     date: "Jul 7",
     title: "Chat with Monet from Telegram",
     items: [
@@ -19,6 +19,16 @@ const RELEASES: ReleaseEntry[] = [
       "Each Telegram chat (DM or group) maps to its own persistent conversation, so Monet remembers the ongoing discussion per chat",
       "Locked behind a shared-secret API key, with the same read-only rules as web chat — Monet still can't be told to place trades",
       "Health endpoint added so the sidecar can monitor that Monet is reachable",
+    ],
+  },
+  {
+    version: "v1.13",
+    date: "Jul 7",
+    title: "Memory loads leaner across every run",
+    items: [
+      "Extended the Jul 1 memory optimization to all run types (factor loop, reflection, weekly review), not just Conviction — the agent no longer loads its ~750 write-once decision-history records just to read a handful of current beliefs",
+      "Loading current beliefs is now ~3× smaller and stops growing over time — the decision log kept expanding every run and was silently inflating the cost of every loop",
+      "The full history is still kept and available on demand for audits; no change to any trading decision",
     ],
   },
   {
