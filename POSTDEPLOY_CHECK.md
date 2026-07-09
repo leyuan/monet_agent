@@ -6,6 +6,14 @@ Ongoing checklist of features/behaviors to verify after deployment. When reviewi
 
 ## Pending Verification
 
+### Price Alert Check cadence — 15 min → every 2 hours (Jul 9)
+**Trigger**: After running `python scripts/create_crons.py` against the LangGraph deployment. Cron changed `*/15 14-20 * * 1-5` → `0 14-20/2 * * 1-5` (croniter-verified: 14/16/18/20 UTC, 4 runs/weekday).
+- [ ] `create_crons.py` ran; `client.crons.search()` shows the Price Alert Check with schedule `0 14-20/2 * * 1-5` and no leftover `*/15` cron
+- [ ] All OTHER crons still present after the delete-and-recreate (2 factor loops, reflection, weekend factor, weekly review) — the script wipes ALL crons, so confirm the full set came back
+- [ ] Next weekday: exactly 4 price-alert runs (not ~28) in LangSmith between 14:00–20:00 UTC
+- [ ] Watchlist entries still get taken — confirm a near-target name is still acted on at the next 2-hr check OR via a resting limit/bracket order (no missed entries from the lower cadence)
+- [ ] Daily run count / cost drops materially vs the ~28-run baseline
+
 ### Memory read cost — `read_all_agent_memory` excludes audit history (Jul 7)
 **Trigger**: Next factor-loop / reflection / weekly-review runs (any skill that calls `read_all_agent_memory()`). **Local test passed Jul 7**: default 100 keys / ~39K tok vs `include_audit=True` 850 keys / ~112K tok; 750 audit records held back.
 - [ ] A factor-loop or reflection trace shows `read_all_agent_memory` returning the live-belief set (~40K tok) — NOT the ~104K blob; the Jul 3 17:00 factor loop's `read_all` + 2 blob re-reads pattern is gone

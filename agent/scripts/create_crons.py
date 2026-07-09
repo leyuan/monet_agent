@@ -6,6 +6,7 @@ Weekdays (Mon-Fri) — 3 runs/day = 15/week:
 - 10:00 AM ET (14:00 UTC) — Factor loop (score_universe → signals → execute)
 - 1:00 PM ET  (17:00 UTC) — Factor loop (reuses 4hr cache, checks earnings reactions)
 - 4:00 PM ET  (20:00 UTC) — Reflection (factor performance evaluation, recap)
+- Every 2 hrs (14-20 UTC) — Price Alert Check (lightweight watchlist-vs-target scan)
 
 Weekends — 1 run/day = 2/week:
 - Sat 11:00 AM ET (15:00 UTC) — Factor loop weekend mode (full 50-stock ranking, no execution)
@@ -133,8 +134,8 @@ CRONS = [
         ),
     },
     {
-        "name": "Price Alert Check (every 15 min, market hours)",
-        "schedule": "*/15 14-20 * * 1-5",
+        "name": "Price Alert Check (every 2 hours, market hours)",
+        "schedule": "0 14-20/2 * * 1-5",
         "message": (
             "Run the price alert check. Execute this phase:\n\n"
             "1. **Price Check** — Read /skills/price-check/SKILL.md\n\n"
