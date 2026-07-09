@@ -105,6 +105,46 @@ def test_handle_group_chat_prepends_other_agents_note(client, monkeypatch):
     assert calls[0].endswith("hello")  # raw text preserved after the note
 
 
+def test_handle_group_message_from_agent_gets_answering_note(client, monkeypatch):
+    calls = []
+
+    async def fake_pipeline(session_id, text):
+        calls.append(text)
+        return "noted"
+
+    monkeypatch.setattr(bridge, "run_chat_pipeline", fake_pipeline)
+
+    body = make_body(
+        chat={"kind": "group", "title": "trading floor"},
+        sender={"id": "tg:8942443150", "name": "stock-agent", "kind": "agent"},
+    )
+    response = client.post("/handle", json=body, headers={"X-API-Key": API_KEY})
+    assert response.status_code == 200
+    assert len(calls) == 1
+    wrapped = calls[0]
+    assert "from stock-agent" in wrapped
+    assert "hello" in wrapped
+    # Routing directive must come AFTER the message text — models follow
+    # trailing directives far more reliably than leading preambles.
+    assert wrapped.index("hello") < wrapped.rindex("@evo_stock_agent_bot")
+
+
+def test_handle_group_message_from_human_keeps_initiate_note(client, monkeypatch):
+    calls = []
+
+    async def fake_pipeline(session_id, text):
+        calls.append(text)
+        return "noted"
+
+    monkeypatch.setattr(bridge, "run_chat_pipeline", fake_pipeline)
+
+    body = make_body(chat={"kind": "group", "title": "trading floor"})
+    response = client.post("/handle", json=body, headers={"X-API-Key": API_KEY})
+    assert response.status_code == 200
+    assert "from stock-agent" not in calls[0]
+    assert "@evo_stock_agent_bot" in calls[0]
+
+
 def test_handle_without_chat_field_passes_text_through(client, monkeypatch):
     calls = []
 

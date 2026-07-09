@@ -34,18 +34,23 @@ class ChatInfo(BaseModel):
     kind: str = "dm"
 
 
+class SenderInfo(BaseModel):
+    kind: str = "human"
+
+
 class HandleRequest(BaseModel):
     """The bridge-contract fields the endpoint acts on; extras are ignored.
 
     The agent has one persistent identity and conversation memory is keyed
-    per thread (session_id), not per user account — so sender metadata
-    needs no account mapping and is accepted but unused. chat.kind gates
-    the group-only OTHER_AGENTS_NOTE.
+    per thread (session_id), not per user account — so sender identity
+    needs no account mapping. chat.kind and sender.kind gate which
+    group-only context note gets prepended.
     """
 
     session_id: str
     text: str
     chat: ChatInfo | None = None
+    sender: SenderInfo | None = None
 
 
 # Prepended to group-chat messages only — in a DM the mention would go
@@ -59,6 +64,24 @@ OTHER_AGENTS_NOTE = (
     "question needs it — it only sees messages that mention it. When nothing "
     "more is needed from it, do NOT mention it: a reply without the mention "
     "ends the bot-to-bot exchange.]\n\n"
+)
+
+# Variants used when the incoming message itself came from the other agent:
+# the asker only receives the answer if the reply @mentions it. The routing
+# directive goes AFTER the message text (models follow trailing directives
+# far more reliably than leading preambles), phrased as a format default
+# with an explicit opt-out — a conditional "if answering, include..." was
+# ignored in live testing by both sonnet-4.5 and gpt-4o.
+FROM_AGENT_HEADER = (
+    "[Message from stock-agent (@evo_stock_agent_bot) — another AI agent in "
+    "this chat (action-capable stock-market simulator), not a human.]\n\n"
+)
+FROM_AGENT_FOOTER = (
+    "\n\n[Reply routing: stock-agent cannot see your reply unless it contains "
+    "@evo_stock_agent_bot. You are replying to stock-agent, so begin your "
+    "reply with @evo_stock_agent_bot. Omit it ONLY if the exchange is truly "
+    "complete and your reply is meant for the humans instead. Never reply "
+    "with pure courtesy or acknowledgment.]"
 )
 
 
@@ -128,6 +151,10 @@ async def handle(request: Request):
 
     text = payload.text
     if payload.chat is not None and payload.chat.kind == "group":
-        text = OTHER_AGENTS_NOTE + text
+        from_agent = payload.sender is not None and payload.sender.kind == "agent"
+        if from_agent:
+            text = FROM_AGENT_HEADER + text + FROM_AGENT_FOOTER
+        else:
+            text = OTHER_AGENTS_NOTE + text
     reply = await run_chat_pipeline(payload.session_id, text)
     return {"text": reply, "done": True}
