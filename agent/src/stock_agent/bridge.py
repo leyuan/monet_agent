@@ -17,12 +17,15 @@ import hmac
 import os
 import uuid
 
+import anthropic
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from langgraph_sdk import get_client
 from pydantic import BaseModel, ValidationError
 
 ASSISTANT_ID = "monet_agent"
+STOCK_HANDLE = "@evo_stock_agent_bot"
+JUDGE_MODEL = "claude-opus-4-8"
 
 # Fixed namespace so a given session_id always maps to the same thread UUID.
 _THREAD_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "monet-agent/telegram-bridge")
@@ -78,10 +81,11 @@ FROM_AGENT_HEADER = (
 )
 FROM_AGENT_FOOTER = (
     "\n\n[Reply routing: stock-agent cannot see your reply unless it contains "
-    "@evo_stock_agent_bot. You are replying to stock-agent, so begin your "
-    "reply with @evo_stock_agent_bot. Omit it ONLY if the exchange is truly "
-    "complete and your reply is meant for the humans instead. Never reply "
-    "with pure courtesy or acknowledgment.]"
+    "@evo_stock_agent_bot. You are replying to stock-agent, so your FINAL "
+    "message — the last one you write, after any tool use — must begin with "
+    "@evo_stock_agent_bot. Omit it ONLY if the exchange is truly complete and "
+    "your reply is meant for the humans instead. Never reply with pure "
+    "courtesy or acknowledgment.]"
 )
 
 
@@ -90,25 +94,39 @@ def thread_id_for_session(session_id: str) -> str:
     return str(uuid.uuid5(_THREAD_NAMESPACE, session_id))
 
 
+def _ai_text(message: dict) -> str | None:
+    """Text of an AI message, or None if the message isn't AI-typed."""
+    if message.get("type") != "ai":
+        return None
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            block.get("text", "")
+            for block in content
+            if isinstance(block, dict) and block.get("type") == "text"
+        )
+    return None
+
+
 def extract_reply(state: dict) -> str:
     """Pull the final AI reply text from a chat run's output state."""
     for message in reversed((state or {}).get("messages") or []):
-        if message.get("type") != "ai":
-            continue
-        content = message.get("content")
-        if isinstance(content, str):
-            return content
-        if isinstance(content, list):
-            return "".join(
-                block.get("text", "")
-                for block in content
-                if isinstance(block, dict) and block.get("type") == "text"
-            )
+        text = _ai_text(message)
+        if text is not None:
+            return text
     raise RuntimeError("Chat run produced no AI reply")
 
 
-async def run_chat_pipeline(session_id: str, text: str) -> str:
-    """Run text through the chat graph on the session's persistent thread."""
+async def run_chat_pipeline(session_id: str, text: str) -> tuple[str, list[str]]:
+    """Run text through the chat graph on the session's persistent thread.
+
+    Returns (final reply, texts of ALL AI messages produced by this run).
+    The full list matters: in multi-step tool runs the model may address
+    its reply (e.g. "@evo_stock_agent_bot ...") in an intermediate message
+    that never gets posted — only the final one does.
+    """
     client = get_client()  # in-process connection to this server's API
     thread_id = thread_id_for_session(session_id)
     await client.threads.create(
@@ -116,12 +134,57 @@ async def run_chat_pipeline(session_id: str, text: str) -> str:
         if_exists="do_nothing",
         metadata={"origin": "telegram-bridge", "session_id": session_id},
     )
+    before = await client.threads.get_state(thread_id)
+    prior_count = len(((before or {}).get("values") or {}).get("messages") or [])
     state = await client.runs.wait(
         thread_id,
         ASSISTANT_ID,
         input={"messages": [{"role": "user", "content": text}]},
     )
-    return extract_reply(state)
+    run_messages = ((state or {}).get("messages") or [])[prior_count:]
+    run_ai_texts = [t for m in run_messages if (t := _ai_text(m)) is not None]
+    return extract_reply(state), run_ai_texts
+
+
+async def judge_should_route(incoming: str, reply: str) -> bool:
+    """Content-judge fallback for the reply-routing decision.
+
+    Runs only when the model never emitted the handle anywhere in the run.
+    Fails open (route): an extra hop is bounded by the bridge's hop cap,
+    while a dropped reply silently ends the conversation.
+    """
+    try:
+        client = anthropic.AsyncAnthropic()
+        response = await client.messages.create(
+            model=JUDGE_MODEL,
+            max_tokens=8,
+            messages=[{
+                "role": "user",
+                "content": (
+                    "Two AI agents share a Telegram group chat with humans. "
+                    "stock-agent sent monet this message:\n\n"
+                    f"{incoming[:2000]}\n\n"
+                    f"monet replied:\n\n{reply[:2000]}\n\n"
+                    "Decide the routing for monet's reply:\n"
+                    "- ROUTE: deliver it back to stock-agent, which will then "
+                    "respond again. Choose this if the reply answers a "
+                    "question stock-agent is waiting on, asks stock-agent "
+                    "something, or moves their exchange forward.\n"
+                    "- END: post it to the group only; stock-agent never sees "
+                    "it and the bot-to-bot exchange stops. Choose this if the "
+                    "exchange has concluded — the reply only acknowledges, "
+                    "agrees, thanks, or restates an already-settled outcome "
+                    "for the humans.\n"
+                    "Reply with exactly one word: ROUTE or END."
+                ),
+            }],
+        )
+        verdict = "".join(
+            block.text for block in response.content if block.type == "text"
+        )
+        return not verdict.strip().upper().startswith("END")
+    except Exception:
+        return True
 
 
 @app.get("/health")
@@ -149,12 +212,25 @@ async def handle(request: Request):
     except ValueError:
         return JSONResponse({"detail": "Request body is not valid JSON"}, status_code=422)
 
+    in_group = payload.chat is not None and payload.chat.kind == "group"
+    from_agent = (
+        in_group and payload.sender is not None and payload.sender.kind == "agent"
+    )
     text = payload.text
-    if payload.chat is not None and payload.chat.kind == "group":
-        from_agent = payload.sender is not None and payload.sender.kind == "agent"
-        if from_agent:
-            text = FROM_AGENT_HEADER + text + FROM_AGENT_FOOTER
-        else:
-            text = OTHER_AGENTS_NOTE + text
-    reply = await run_chat_pipeline(payload.session_id, text)
+    if from_agent:
+        text = FROM_AGENT_HEADER + text + FROM_AGENT_FOOTER
+    elif in_group:
+        text = OTHER_AGENTS_NOTE + text
+
+    reply, run_ai_texts = await run_chat_pipeline(payload.session_id, text)
+
+    # Reply-routing checker: only the final AI message gets posted, so the
+    # model's addressing can be lost between its own messages — or never
+    # emitted at all. Deterministic fast paths first; the judge runs only
+    # when the handle appeared nowhere in the run.
+    if from_agent and STOCK_HANDLE not in reply:
+        carried = any(STOCK_HANDLE in t for t in run_ai_texts)
+        if carried or await judge_should_route(payload.text, reply):
+            reply = f"{STOCK_HANDLE}\n\n{reply}"
+
     return {"text": reply, "done": True}
