@@ -30,16 +30,36 @@ _THREAD_NAMESPACE = uuid.uuid5(uuid.NAMESPACE_URL, "monet-agent/telegram-bridge"
 app = FastAPI()
 
 
+class ChatInfo(BaseModel):
+    kind: str = "dm"
+
+
 class HandleRequest(BaseModel):
     """The bridge-contract fields the endpoint acts on; extras are ignored.
 
     The agent has one persistent identity and conversation memory is keyed
-    per thread (session_id), not per user account — so sender/chat metadata
-    needs no account mapping and is accepted but unused.
+    per thread (session_id), not per user account — so sender metadata
+    needs no account mapping and is accepted but unused. chat.kind gates
+    the group-only OTHER_AGENTS_NOTE.
     """
 
     session_id: str
     text: str
+    chat: ChatInfo | None = None
+
+
+# Prepended to group-chat messages only — in a DM the mention would go
+# nowhere. The other bot only receives messages that @mention it, so
+# omitting the mention is what ends a bot-to-bot exchange.
+OTHER_AGENTS_NOTE = (
+    "[Group-chat context: another AI agent is in this chat — stock-agent "
+    "(@evo_stock_agent_bot), an action-capable stock-market-simulator agent "
+    "(portfolio, live market data, trade execution). Mention "
+    "@evo_stock_agent_bot in your reply when a market/portfolio/execution "
+    "question needs it — it only sees messages that mention it. When nothing "
+    "more is needed from it, do NOT mention it: a reply without the mention "
+    "ends the bot-to-bot exchange.]\n\n"
+)
 
 
 def thread_id_for_session(session_id: str) -> str:
@@ -106,5 +126,8 @@ async def handle(request: Request):
     except ValueError:
         return JSONResponse({"detail": "Request body is not valid JSON"}, status_code=422)
 
-    reply = await run_chat_pipeline(payload.session_id, payload.text)
+    text = payload.text
+    if payload.chat is not None and payload.chat.kind == "group":
+        text = OTHER_AGENTS_NOTE + text
+    reply = await run_chat_pipeline(payload.session_id, text)
     return {"text": reply, "done": True}

@@ -88,6 +88,39 @@ def test_handle_happy_path_returns_full_reply(client, monkeypatch):
     assert calls == [("tg:-1001234", "hello")]
 
 
+def test_handle_group_chat_prepends_other_agents_note(client, monkeypatch):
+    calls = []
+
+    async def fake_pipeline(session_id, text):
+        calls.append(text)
+        return "noted"
+
+    monkeypatch.setattr(bridge, "run_chat_pipeline", fake_pipeline)
+
+    body = make_body(chat={"kind": "group", "title": "trading floor"})
+    response = client.post("/handle", json=body, headers={"X-API-Key": API_KEY})
+    assert response.status_code == 200
+    assert len(calls) == 1
+    assert "@evo_stock_agent_bot" in calls[0]
+    assert calls[0].endswith("hello")  # raw text preserved after the note
+
+
+def test_handle_without_chat_field_passes_text_through(client, monkeypatch):
+    calls = []
+
+    async def fake_pipeline(session_id, text):
+        calls.append(text)
+        return "noted"
+
+    monkeypatch.setattr(bridge, "run_chat_pipeline", fake_pipeline)
+
+    body = make_body()
+    del body["chat"]
+    response = client.post("/handle", json=body, headers={"X-API-Key": API_KEY})
+    assert response.status_code == 200
+    assert calls == ["hello"]
+
+
 def test_handle_rejects_body_missing_text(client):
     body = make_body()
     del body["text"]
