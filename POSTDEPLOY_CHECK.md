@@ -6,6 +6,15 @@ Ongoing checklist of features/behaviors to verify after deployment. When reviewi
 
 ## Pending Verification
 
+### AI Super-Cycle chart — Daily/Weekly/Monthly granularity (Jul 10)
+**Trigger**: Web deploy; open `/ai-cycle`. **Local**: typecheck passes; week-bucketing verified (Mon week starts, chronological buckets, avg over non-null).
+- [ ] Chart shows a Daily/Weekly/Monthly toggle top-right; clicking re-aggregates the three series
+- [ ] Weekly/Monthly points = the period AVERAGE (not last value); nulls skipped, no gaps introduced
+- [ ] X-axis labels stay MM-DD and chronological under all three modes; right edge = most recent period
+- [ ] With <8 weeks of history the default is Daily; once span >56 days it auto-defaults to Weekly, and a manual pick is never overridden afterward
+- [ ] Capex YoY (quarterly, flat) still renders as the dashed right-axis line under aggregation
+- [ ] **Edge**: empty history still shows the "No history yet" placeholder; a single data point doesn't crash weekly/monthly
+
 ### Memory read cost — `read_all_agent_memory` excludes audit history (Jul 7)
 **Trigger**: Next factor-loop / reflection / weekly-review runs (any skill that calls `read_all_agent_memory()`). **Local test passed Jul 7**: default 100 keys / ~39K tok vs `include_audit=True` 850 keys / ~112K tok; 750 audit records held back.
 - [ ] A factor-loop or reflection trace shows `read_all_agent_memory` returning the live-belief set (~40K tok) — NOT the ~104K blob; the Jul 3 17:00 factor loop's `read_all` + 2 blob re-reads pattern is gone
