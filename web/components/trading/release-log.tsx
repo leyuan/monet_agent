@@ -11,6 +11,16 @@ interface ReleaseEntry {
 
 const RELEASES: ReleaseEntry[] = [
   {
+    version: "v1.14",
+    date: "Jul 9",
+    title: "Intraday price checks dialed back to every 2 hours",
+    items: [
+      "The lightweight intraday watchlist price check now runs every 2 hours during market hours instead of every 15 minutes — 4 checks/day instead of ~28",
+      "Entries and exits are already protected by resting limit and bracket orders that fill automatically at the broker, so frequent polling added cost without adding edge on a multi-week positional strategy",
+      "Cuts a recurring background cost with no change to which trades get made",
+    ],
+  },
+  {
     version: "v1.13",
     date: "Jul 7",
     title: "Memory loads leaner across every run",
