@@ -6,6 +6,15 @@ Ongoing checklist of features/behaviors to verify after deployment. When reviewi
 
 ## Pending Verification
 
+### AI Super-Cycle chart — Daily/Weekly/Monthly granularity (Jul 10)
+**Trigger**: Web deploy; open `/ai-cycle`. **Local**: typecheck passes; week-bucketing verified (Mon week starts, chronological buckets, avg over non-null).
+- [ ] Chart shows a Daily/Weekly/Monthly toggle top-right; clicking re-aggregates the three series
+- [ ] Weekly/Monthly points = the period AVERAGE (not last value); nulls skipped, no gaps introduced
+- [ ] X-axis labels stay MM-DD and chronological under all three modes; right edge = most recent period
+- [ ] With <8 weeks of history the default is Daily; once span >56 days it auto-defaults to Weekly, and a manual pick is never overridden afterward
+- [ ] Capex YoY (quarterly, flat) still renders as the dashed right-axis line under aggregation
+- [ ] **Edge**: empty history still shows the "No history yet" placeholder; a single data point doesn't crash weekly/monthly
+
 ### Price Alert Check cadence — 15 min → every 2 hours (Jul 9)
 **Trigger**: After running `python scripts/create_crons.py` against the LangGraph deployment. Cron changed `*/15 14-20 * * 1-5` → `0 14-20/2 * * 1-5` (croniter-verified: 14/16/18/20 UTC, 4 runs/weekday).
 - [ ] `create_crons.py` ran; `client.crons.search()` shows the Price Alert Check with schedule `0 14-20/2 * * 1-5` and no leftover `*/15` cron

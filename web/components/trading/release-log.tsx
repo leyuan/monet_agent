@@ -11,6 +11,16 @@ interface ReleaseEntry {
 
 const RELEASES: ReleaseEntry[] = [
   {
+    version: "v1.15",
+    date: "Jul 10",
+    title: "Super-Cycle chart: Daily / Weekly / Monthly view",
+    items: [
+      "The AI Super-Cycle history chart now has a Daily / Weekly / Monthly toggle — weekly and monthly roll up each period to its average, smoothing the day-to-day noise",
+      "The underlying signals (3-month trailing momentum, quarterly capex) are inherently slow-moving, so the daily view oversamples them; weekly reads much cleaner once there's more than a couple of months of history",
+      "Defaults to Daily for now and auto-switches to Weekly once the history spans more than ~8 weeks; your manual choice always sticks",
+    ],
+  },
+  {
     version: "v1.14",
     date: "Jul 9",
     title: "Intraday price checks dialed back to every 2 hours",
